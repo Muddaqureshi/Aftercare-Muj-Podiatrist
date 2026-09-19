@@ -14,6 +14,7 @@
     "cloud:assets": "node cloud/build-assets.js",
     "cloud:dev": "npm run cloud:assets && wrangler dev",
     "cloud:deploy": "npm run cloud:assets && wrangler deploy",
+    "cloud:set-login": "node cloud/set-login.js",
     "test:cloud": "node --test tests/cloud.test.js"
   },
   "dependencies": {

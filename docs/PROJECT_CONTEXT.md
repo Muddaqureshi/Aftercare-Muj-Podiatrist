@@ -68,7 +68,9 @@ GitHub repository
 | `pilot/ai.js` | Shared interpretation/grounding checks and local Ollama transport |
 | `pilot/client.js` | Shared local/hosted interface; deployment-aware messaging |
 | `pilot/mailer.js` | SMTP transport reused by the local and hosted versions |
-| `cloud/worker.js` | Hosted HTTP API, owner sign-in, and scheduled entry point |
+| `cloud/worker.js` | Hosted HTTP API, username/password sign-in, and scheduled entry point |
+| `password-auth.js` | Shared password derivation and verifier comparison |
+| `cloud/set-login.js` | Private owner credential setup/reset and live browser verification |
 | `cloud/core.js` | D1 access, revision checks, sessions, rate limits, and retention |
 | `cloud/services.js` | Workers AI and Workers-native Gmail TLS connection |
 | `cloud/migrations/` | Versioned D1 schema |
@@ -101,13 +103,16 @@ GitHub repository
 
 ### Sign-in and email
 
-- Hosted sign-in is limited to the configured Gmail owner, using an eight-digit, single-use code.
-- Codes expire after ten minutes; sends and guesses are rate-limited.
+- Hosted sign-in uses the configured owner's username and password, with no email code or second factor. This supersedes the initial email-code design at the owner's request.
+- Credential setup is private and administrator-authorized; no public account setup is exposed.
+- Password derivation uses Web Crypto PBKDF2-SHA256 with 600,000 iterations and a random 32-byte salt. The expensive derivation runs in the browser to stay within the free Worker's CPU budget. The server stores only a SHA-256 verifier of the derived proof, never that reusable proof or the plaintext password.
+- The public salt is not a credential. Treat the derived proof as password-equivalent: send it only over HTTPS, never log it, and never accept the stored verifier itself as a login proof.
+- Login guesses are rate-limited by IP and globally. Password resets revoke existing sessions without changing records.
 - Session cookies are Secure, HttpOnly, and SameSite=Strict. Only token hashes are stored; sessions expire after eight hours.
 - There is no public registration, first-visitor setup, or hosted public-CSV publishing endpoint.
 - Reminder emails contain aggregate counts and the sign-in link, not patient codes or treatment details.
 - A durable daily key prevents duplicate scheduled sends. Uncertain delivery is not automatically retried.
-- Gmail acceptance is not proof of inbox delivery. A sign-in email from the deployed Worker was received and confirmed during setup.
+- Gmail acceptance is not proof of inbox delivery. Hosted Gmail delivery was confirmed during initial setup; subsequent sign-ins no longer send any email.
 - The hosted SMTP transport supplies a TLS socket resolved by the Workers runtime. Nodemailer's default Node DNS connection path failed in this runtime; TLS verification was not disabled.
 - The Mac pilot's daily reminder setting was disabled at cutover to avoid duplicate emails. Its other features and records remain available.
 
@@ -123,7 +128,7 @@ GitHub repository
 
 ## Verification completed
 
-Automated coverage includes date arithmetic, milestone actions, CSV handling, local persistence, hosted owner-only sign-in, replay/expiry/rate limits, origin checks, stale-write conflicts, reminder deduplication, and retention boundaries.
+Automated coverage includes date arithmetic, milestone actions, CSV handling, local persistence, hosted owner-only password sign-in, password derivation, rejection of stored-verifier replay, session expiry/rate limits, origin checks, stale-write conflicts, reminder deduplication, and retention boundaries.
 
 The deployed app was also checked using actual D1 writes, the real hosted model, two browser engines, a phone-sized viewport, and a Gmail reminder send. Live-check records and its temporary session were removed afterward.
 

@@ -1,11 +1,12 @@
 import { PROCEDURES, formatDate, addDays, daysBetween, attentionTasks, weeklyTasks, isOpen, canUndoCompletion, milestoneState, createPatient } from "/domain.js";
 import { patientsToCSV } from "/csv.js";
+import { passwordProof } from "/password-auth.js";
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-const state = { user: null, patients: [], revision: 0, today: "", view: "overview", query: "", ai: null, reply: null, settings: null, notice: "", error: "", completion: null };
+const state = { user: null, patients: [], revision: 0, today: "", view: "overview", query: "", ai: null, reply: null, settings: null, notice: "", error: "", completion: null, deployment: document.body.dataset.deployment || "local" };
 let setupRequired = false, draft, fields, proposalRevision, confirmHandler, busy = false;
-let loginEmail = "", codeRequested = false;
+let passwordSalt = "";
 const hosted = () => state.deployment === "cloud";
 
 async function api(path, body) {
@@ -47,7 +48,7 @@ function showError(error) {
 
 function renderAuth() {
   if (hosted()) {
-    $("#pilot").innerHTML = `<main id="main" class="auth-card"><div class="brand"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</div><h1>Your private online workspace.</h1><p>Sign in with the owner's Gmail address. No separate password to remember.</p><p class="pilot-notice">Fictional cases only. Records are stored privately in Cloudflare—not in the public GitHub repository. This prototype is not approved for actual patient records.</p><form id="auth-form"><label class="field">Gmail address<input name="email" type="email" autocomplete="email" required value="${esc(loginEmail)}" ${codeRequested ? "readonly" : ""}></label>${codeRequested ? '<label class="field">Eight-digit sign-in code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label><p>Check Gmail. The code expires after 10 minutes and works once.</p>' : "<p>A sign-in code will be sent only to the configured owner.</p>"}<div id="auth-error" class="pilot-error" role="alert"></div><button class="button primary" type="submit">${codeRequested ? "Sign in" : "Send sign-in code"}</button>${codeRequested ? '<button class="text-button" type="button" data-action="new-login-code">Request another code</button>' : ""}</form></main>`;
+    $("#pilot").innerHTML = `<main id="main" class="auth-card"><div class="brand"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</div><h1>Your private online workspace.</h1><p>Sign in with your username and password. No email code required.</p><p class="pilot-notice">Fictional cases only. Records are stored privately in Cloudflare—not in the public GitHub repository. This prototype is not approved for actual patient records.</p><form id="auth-form"><label class="field">Username<input name="username" minlength="3" maxlength="40" autocomplete="username" autocapitalize="none" required></label><label class="field">Password<input name="password" type="password" minlength="12" maxlength="128" autocomplete="current-password" required></label><div id="auth-error" class="pilot-error" role="alert"></div><button class="button primary" type="submit">Sign in</button></form><p>Gmail is used for reminders, not sign-in. Only the configured owner can access this workspace.</p></main>`;
     return;
   }
   $("#pilot").innerHTML = `<main id="main" class="auth-card"><div class="brand"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</div><h1>${setupRequired ? "Set up your local pilot." : "Sign in to Aftercare."}</h1><p>Shared follow-ups, real local AI, and a daily review reminder.</p><p class="pilot-notice">Fictional cases only. This runs on your Mac—not the public GitHub page. It is not approved for clinical records.</p><form id="auth-form"><label class="field">Username<input name="username" minlength="3" maxlength="40" autocomplete="username" required></label><label class="field">Password<input name="password" type="password" minlength="12" maxlength="128" autocomplete="${setupRequired ? "new-password" : "current-password"}" required></label><p class="field-help">Use at least 12 characters. Keep your password outside this repository.</p><div id="auth-error" class="pilot-error" role="alert"></div><button class="button primary" type="submit">${setupRequired ? "Create clinician account" : "Sign in"}</button></form><p>${setupRequired ? "The first account manages plans, staff access, and reminders. Six fictional cases will be added." : "Your records are in the local shared database, not this browser’s storage."}</p></main>`;
@@ -181,8 +182,7 @@ document.addEventListener("click", async event => {
   const locks = ["complete", "undo-complete", "confirm", "save-plan", "test-email", "logout"];
   if (locks.includes(action)) { busy = true; button.disabled = true; }
   try {
-    if (action === "new-login-code") { codeRequested = false; renderAuth(); }
-    else if (action === "close") button.closest("dialog").close();
+    if (action === "close") button.closest("dialog").close();
     else if (action === "logout") {
       await api("/api/logout", {});
       location.reload();
@@ -260,12 +260,8 @@ document.addEventListener("submit", async event => {
   busy = true; if (button) button.disabled = true;
   try {
     if (form.id === "auth-form") {
-      const result = await api(setupRequired ? "/api/setup" : "/api/login", values);
-      if (result.codeSent) {
-        loginEmail = values.email; codeRequested = true; renderAuth();
-        $("#auth-form input[name='code']").focus();
-        return;
-      }
+      const credentials = hosted() ? { username: values.username, proof: await passwordProof(values.password, passwordSalt) } : values;
+      const result = await api(setupRequired ? "/api/setup" : "/api/login", credentials);
       state.user = result.user; setupRequired = false; await loadState(); render();
     } else if (form.id === "case-form") preview(values);
     else if (form.id === "ai-form") {
@@ -290,6 +286,7 @@ try {
   const bootstrap = await api("/api/bootstrap");
   setupRequired = bootstrap.setupRequired;
   state.deployment = bootstrap.deployment || "local";
+  passwordSalt = bootstrap.passwordSalt || "";
   state.user = bootstrap.user;
   if (state.user) await loadState();
   render();

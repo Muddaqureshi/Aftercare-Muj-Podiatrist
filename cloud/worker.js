@@ -2,8 +2,9 @@ import { HttpError, clinicClock, mutatePatients } from "../backend-shared.js";
 import { makeSeed } from "../domain.js";
 import { authenticated, hash, token, rateLimit, getState, closedCases, saveState, expireCases, surgeon, cookieName } from "./core.js";
 import { hostedAI, hostedMailer, sendReminder } from "./services.js";
+import { proofVerifier, sameVerifier } from "../password-auth.js";
 
-const assets = new Set(["/", "/index.html", "/domain.js", "/csv.js", "/styles.css", "/tokens.css", "/favicon.svg", "/pilot/client.js", "/pilot/pilot.css"]);
+const assets = new Set(["/", "/index.html", "/domain.js", "/csv.js", "/password-auth.js", "/styles.css", "/tokens.css", "/favicon.svg", "/pilot/client.js", "/pilot/pilot.css"]);
 const headers = {
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
@@ -42,39 +43,24 @@ function configured(env, url) {
   if (!env.GMAIL_ADDRESS || !/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(env.GMAIL_ADDRESS)) throw new HttpError(503, "The owner account has not been configured.");
 }
 
-async function login(request, env, now, mailer) {
+function loginProfile(env) {
+  let profile;
+  try { profile = JSON.parse(env.OWNER_LOGIN); }
+  catch { throw new HttpError(503, "The owner must finish setting up username-and-password sign-in."); }
+  if (!profile || profile.version !== 1 || !/^[a-z][a-z0-9._-]{2,39}$/.test(profile.username || "") || !/^[a-f0-9]{64}$/.test(profile.salt || "") || !/^[a-f0-9]{64}$/.test(profile.verifier || "")) throw new HttpError(503, "The owner login configuration is invalid.");
+  return profile;
+}
+
+async function login(request, env, now) {
   const db = env.DB;
   const ip = await hash(request.headers.get("CF-Connecting-IP") || "local");
-  await rateLimit(db, `auth:${ip}`, 30, 3600, now);
+  await rateLimit(db, `password-auth:${ip}`, 20, 900, now);
+  await rateLimit(db, "password-auth-total", 100, 3600, now);
   const body = await bodyJSON(request);
-  if (typeof body.email !== "string" || body.email.trim().toLowerCase() !== env.GMAIL_ADDRESS.toLowerCase()) throw new HttpError(401, "Use the owner's configured Gmail address.");
-  if (!body.code) {
-    await rateLimit(db, "send-code-minute", 1, 60, now);
-    await rateLimit(db, "send-code-hour", 5, 3600, now);
-    const code = crypto.getRandomValues(new Uint8Array(8)).reduce((s, byte) => s + String(byte % 10), "");
-    const codeHash = await hash(code);
-    await db.prepare("INSERT INTO login_challenge(id,code_hash,expires,attempts) VALUES(1,?,?,0) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash,expires=excluded.expires,attempts=0")
-      .bind(codeHash, now.getTime() + 600000).run();
-    try {
-      await mailer.send({
-        id: crypto.randomUUID(), recipient: env.GMAIL_ADDRESS, subject: "Your Aftercare sign-in code",
-        body: `Your Aftercare sign-in code is ${code}.\n\nIt expires in 10 minutes and works once.\nEnter it only at ${env.APP_ORIGIN}.\nIf you did not request this, ignore this email.`
-      });
-    } catch (error) {
-      console.error("Hosted Gmail connection failed:", error.code || "SMTP_ERROR");
-      await db.prepare("DELETE FROM login_challenge WHERE code_hash=?").bind(codeHash).run();
-      throw new HttpError(502, "Gmail did not confirm sending a sign-in code. Check delivery configuration; wait a minute before trying again.");
-    }
-    return json({ codeSent: true });
-  }
-  if (typeof body.code !== "string" || !/^\d{8}$/.test(body.code)) throw new HttpError(400, "Enter the eight-digit sign-in code from Gmail.");
-  const challenge = await db.prepare("UPDATE login_challenge SET attempts=attempts+1 WHERE id=1 AND expires>? AND attempts<8 RETURNING code_hash")
-    .bind(now.getTime()).first();
-  const codeHash = await hash(body.code);
-  if (!challenge || challenge.code_hash !== codeHash) throw new HttpError(401, "The code is incorrect or expired. Request a new code if needed.");
-  const consumed = await db.prepare("DELETE FROM login_challenge WHERE id=1 AND code_hash=? AND expires>? RETURNING id")
-    .bind(codeHash, now.getTime()).first();
-  if (!consumed) throw new HttpError(401, "That sign-in code has already been used. Request a new one.");
+  const profile = loginProfile(env);
+  if (typeof body.username !== "string" || typeof body.proof !== "string" || !/^[a-f0-9]{64}$/.test(body.proof)) throw new HttpError(401, "The username or password is incorrect.");
+  const matches = sameVerifier(await proofVerifier(body.proof), profile.verifier);
+  if (!matches || body.username.trim().toLowerCase() !== profile.username) throw new HttpError(401, "The username or password is incorrect.");
   const secret = token();
   await db.prepare("INSERT INTO sessions(token,expires) VALUES(?,?)").bind(await hash(secret), now.getTime() + 8 * 3600000).run();
   return json({ user: surgeon }, 200, { "Set-Cookie": `${cookieName}=${secret}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800` });
@@ -95,8 +81,8 @@ export function createWorker({ now = () => new Date(), mailerFactory = hostedMai
         if (request.method === "POST" && (request.headers.get("origin") !== env.APP_ORIGIN || request.headers.get("X-Aftercare") !== "1")) throw new HttpError(403, "This request did not come from Aftercare. Refresh and try again.");
         const date = now(), db = env.DB, path = url.pathname;
         const user = await authenticated(request, db, date);
-        if (request.method === "GET" && path === "/api/bootstrap") return json({ setupRequired: false, user, deployment: "cloud", loginMethod: "email-code" });
-        if (request.method === "POST" && path === "/api/login") return await login(request, env, date, mailerFactory(env));
+        if (request.method === "GET" && path === "/api/bootstrap") return json({ setupRequired: false, user, deployment: "cloud", loginMethod: "password", passwordSalt: loginProfile(env).salt });
+        if (request.method === "POST" && path === "/api/login") return await login(request, env, date);
         if (!user) throw new HttpError(401, "Sign in to your private online workspace.");
         const { today, time } = clinicClock(date);
         const settings = async () => {

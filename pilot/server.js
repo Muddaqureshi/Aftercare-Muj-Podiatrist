@@ -14,6 +14,7 @@ const assets = new Map([
   ["/pilot/pilot.css", ["pilot/pilot.css", "text/css"]], ["/styles.css", ["styles.css", "text/css"]],
   ["/tokens.css", ["tokens.css", "text/css"]], ["/domain.js", ["domain.js", "text/javascript"]],
   ["/csv.js", ["csv.js", "text/javascript"]],
+  ["/password-auth.js", ["password-auth.js", "text/javascript"]],
   ["/favicon.svg", ["favicon.svg", "image/svg+xml"]]
 ]);
 

@@ -3,7 +3,7 @@
 ## Everyday use
 
 1. Open **https://aftercare-muj-podiatrist.muddq-finances.workers.dev** on your phone or computer.
-2. Enter the configured owner's Gmail address and select **Send sign-in code**. Enter the code from Gmail. Do not send the code to another person or an AI chat.
+2. Enter your configured **username and password**, then select **Sign in**. No Gmail code or second factor is required. Keep your password out of chat.
 3. Add an invented case and your own milestones. Review the dates, then confirm saving.
 4. Record each visit's outcome. Mark a no-show only after checking attendance.
 5. Ask **AI assistant**, for example, "Who needs my attention this week?"
@@ -60,10 +60,27 @@ Do not widen either deployment's static-file allowlist to include the repository
 3. Run `npx wrangler d1 create aftercare-fictional`.
 4. Update `wrangler.jsonc` with that account's database ID, worker name, and exact HTTPS `APP_ORIGIN`.
 5. Apply the schema migration and deploy using the commands above.
-6. Configure the two secrets below using private prompts.
-7. Verify owner sign-in, saving from two devices, hosted AI, and actual inbox delivery.
+6. Configure the two Gmail secrets below using private prompts, then configure the separate app username/password.
+7. Verify username/password sign-in, saving from two devices, hosted AI, and actual reminder delivery.
 
-The app fails closed until its owner and exact origin are configured. Never enable a paid upgrade merely to work around a free-tier error without the account owner's approval.
+The app fails closed until its owner login and exact origin are configured. Never enable a paid upgrade merely to work around a free-tier error without the account owner's approval.
+
+## Set or reset the app username and password
+
+On the setup Mac:
+
+```sh
+npx wrangler login
+npm run cloud:set-login
+```
+
+The helper opens private native dialogs for a username and a password entered twice. Usernames use 3-40 letters, numbers, dots, underscores, or hyphens and start with a letter. Passwords use 12-128 characters. This is a separate app password, **not the Google app password used for SMTP**.
+
+The helper stores the username, random salt, and password verifier as one `OWNER_LOGIN` Cloudflare secret, redeploys, revokes old sessions/email codes, and checks real sign-in in Chromium and WebKit. The browsers must already be installed for that final check. If verification fails after configuration, the helper reports the phase; do not assume the password was not saved.
+
+The plaintext password is not written to a file, printed, or sent to Cloudflare. Do not replace this process with a plaintext password in `wrangler.jsonc`, a public setup endpoint, or a shell command argument.
+
+For a forgotten password, use this same owner-authorized helper to choose a replacement. Resetting the password signs existing sessions out but does not delete cases or change Gmail reminders.
 
 ## Gmail secrets and rotation
 
@@ -81,7 +98,7 @@ npx wrangler secret put GMAIL_APP_PASSWORD
 
 Do not put their values in command arguments, screenshots, issue comments, chat, source, or GitHub Actions logs. The deployed frontend never receives the app password. Do not display Wrangler's authentication token in shared terminal output.
 
-After rotating a Gmail app password, update the Cloudflare secret and verify sign-in email delivery. The old Mac pilot has a separate private `.env` copy; update it separately if you still use local email features. Revoking a password without updating the hosted secret prevents both sign-in codes and reminders from sending.
+After rotating a Gmail app password, update the Cloudflare secret and send a test reminder. The old Mac pilot has a separate private `.env` copy; update it separately if you still use local email features. Revoking a Gmail app password without updating the hosted secret prevents reminders from sending, but does not block username/password sign-in.
 
 If SMTP authentication fails, verify the Google account matches the sender and the app password was copied correctly. Do not disable TLS verification or switch to an unencrypted transport.
 
@@ -157,7 +174,7 @@ This consumes some free AI allowance and sends one test reminder. It creates a s
 ## Troubleshooting
 
 - **Wrong site:** the GitHub Page is still a separate rule-based demo. Use the hosted URL for online AI and private saving.
-- **No sign-in email:** check the configured owner address and spam folder. Wait for the rate limit rather than repeatedly clicking send. Use the newest code; requesting another invalidates the previous one.
+- **Cannot sign in:** use the app username/password, not the Gmail SMTP app password. Refresh if the page still shows the old email-code form. Wait after a rate-limit error; use the owner-authorized password-reset helper if the password is forgotten.
 - **AI unavailable:** check the free quota and the configured model's current availability. Do not silently label a fallback as AI or enable billing. Manual plan entry remains available.
 - **Conflict while saving:** refresh and review the newest record before retrying. Never force an old browser snapshot over newer data.
 - **A change is missing on another device:** use **Refresh shared records**. The app saves centrally but does not push live updates into other open tabs.

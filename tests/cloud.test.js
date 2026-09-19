@@ -5,9 +5,15 @@ import { closedCases, retention, getState, saveState, expireCases } from "../clo
 import { hostedAI, sendReminder } from "../cloud/services.js";
 import { makeSeed, addDays } from "../domain.js";
 import { testDatabase } from "./d1-fixture.js";
+import { passwordProof, proofVerifier, PASSWORD_ITERATIONS } from "../password-auth.js";
+import { pbkdf2Sync } from "node:crypto";
 
 const address = "fictional-owner@example.test";
 const origin = "https://aftercare.example.test";
+const salt = "af".repeat(32);
+const password = "fictional-login-test-only";
+const proof = await passwordProof(password, salt);
+const profile = { version: 1, username: "test-surgeon", salt, verifier: await proofVerifier(proof) };
 
 function fixture(t) {
   const db = testDatabase();
@@ -15,7 +21,7 @@ function fixture(t) {
   let time = new Date("2026-09-19T14:00:00-04:00");
   const messages = [];
   const mailer = { async send(message) { messages.push(message); } };
-  const env = { DB: db, GMAIL_ADDRESS: address, APP_ORIGIN: origin, ASSETS: { async fetch() { return new Response("public application shell"); } }, AI_MODEL: "TEST DOUBLE" };
+  const env = { DB: db, GMAIL_ADDRESS: address, OWNER_LOGIN: JSON.stringify(profile), APP_ORIGIN: origin, ASSETS: { async fetch() { return new Response("public application shell"); } }, AI_MODEL: "TEST DOUBLE" };
   const worker = createWorker({ now: () => time, mailerFactory: () => mailer, aiFactory: () => ({ async status() { return { ready: false, model: "TEST DOUBLE" }; } }) });
   const request = async (path, body, cookie, extra = {}) => {
     const response = await worker.fetch(new Request(`${origin}${path}`, {
@@ -26,18 +32,23 @@ function fixture(t) {
     return { status: response.status, data: await response.json(), cookie: response.headers.get("set-cookie")?.split(";")[0], headers: response.headers };
   };
   async function signin() {
-    const sent = await request("/api/login", { email: address });
-    assert.equal(sent.status, 200);
-    const code = messages.at(-1).body.match(/\b\d{8}\b/)[0];
-    return request("/api/login", { email: address, code });
+    return request("/api/login", { username: profile.username, proof });
   }
   return { db, env, worker, request, messages, mailer, signin, date: () => time, setDate(value) { time = new Date(value); } };
 }
 
-test("hosted login is owner-only, single-use, and creates a secure hashed session", async t => {
+test("password derivation matches PBKDF2 and its stored verifier is not the login proof", () => {
+  assert.equal(proof, pbkdf2Sync(password, Buffer.from(salt, "hex"), PASSWORD_ITERATIONS, 32, "sha256").toString("hex"));
+  assert.notEqual(profile.verifier, proof);
+  assert.notEqual(profile.verifier, password);
+});
+
+test("hosted password login is owner-only and creates a secure hashed session without email", async t => {
   const { request, signin, messages, db } = fixture(t);
   assert.equal((await request("/api/state")).status, 401);
   assert.equal((await request("/api/login", { email: "not-owner@example.test" })).status, 401);
+  assert.equal((await request("/api/login", { username: "other-owner", proof })).status, 401);
+  assert.equal((await request("/api/login", { username: profile.username, proof: profile.verifier })).status, 401);
   assert.equal(messages.length, 0);
   const signedIn = await signin();
   assert.equal(signedIn.status, 200);
@@ -45,26 +56,34 @@ test("hosted login is owner-only, single-use, and creates a secure hashed sessio
   assert.match(signedIn.cookie, /^__Host-aftercare=/);
   const stored = await db.prepare("SELECT token FROM sessions").first();
   assert.notEqual(stored.token, signedIn.cookie.split("=")[1]);
-  const code = messages.at(-1).body.match(/\b\d{8}\b/)[0];
-  assert.equal((await request("/api/login", { email: address, code })).status, 401);
+  assert.equal(messages.length, 0);
+  const bootstrap = (await request("/api/bootstrap")).data;
+  assert.equal(bootstrap.loginMethod, "password");
+  assert.equal(bootstrap.passwordSalt, salt);
+  assert.ok(!JSON.stringify(bootstrap).includes(profile.verifier));
+  assert.ok(!JSON.stringify(bootstrap).includes(profile.username));
   assert.equal((await request("/api/state", undefined, signedIn.cookie)).data.patients.length, 0);
   await request("/api/logout", {}, signedIn.cookie);
   assert.equal((await request("/api/state", undefined, signedIn.cookie)).status, 401);
 });
 
-test("codes expire, incorrect guesses are bounded, and login sends are throttled", async t => {
+test("password attempts are throttled and sessions expire after eight hours", async t => {
   const f = fixture(t);
-  await f.request("/api/login", { email: address });
-  const code = f.messages.at(-1).body.match(/\b\d{8}\b/)[0];
-  assert.equal((await f.request("/api/login", { email: address })).status, 429);
-  const wrong = code === "11111111" ? "22222222" : "11111111";
-  for (let i = 0; i < 8; i++) assert.equal((await f.request("/api/login", { email: address, code: wrong })).status, 401);
-  assert.equal((await f.request("/api/login", { email: address, code })).status, 401);
-  f.setDate("2026-09-19T14:02:00-04:00");
-  await f.request("/api/login", { email: address });
-  const fresh = f.messages.at(-1).body.match(/\b\d{8}\b/)[0];
-  f.setDate("2026-09-19T14:13:00-04:00");
-  assert.equal((await f.request("/api/login", { email: address, code: fresh })).status, 401);
+  const session = await f.signin();
+  for (let i = 0; i < 19; i++) assert.equal((await f.request("/api/login", { username: profile.username, proof: "00".repeat(32) })).status, 401);
+  assert.equal((await f.signin()).status, 429);
+  assert.equal(f.messages.length, 0);
+  f.setDate("2026-09-19T22:00:01-04:00");
+  assert.equal((await f.request("/api/state", undefined, session.cookie)).status, 401);
+  assert.equal((await f.signin()).status, 200);
+});
+
+test("sign-in works without a Gmail password and rejects missing owner configuration", async t => {
+  const f = fixture(t);
+  delete f.env.GMAIL_APP_PASSWORD;
+  assert.equal((await f.signin()).status, 200);
+  delete f.env.OWNER_LOGIN;
+  assert.equal((await f.signin()).status, 503);
 });
 
 test("cross-origin writes, secrets, public registration, and publication are blocked", async t => {

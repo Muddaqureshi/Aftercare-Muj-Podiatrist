@@ -15,7 +15,7 @@ This is a fictional-data demo, not a clinical system. Time savings, fewer missed
 The hosted workspace is at **https://aftercare-muj-podiatrist.muddq-finances.workers.dev**. It is separate from the public GitHub Pages demo and the local Mac pilot. Private saving, cross-browser access, hosted AI, and Gmail sending have been verified live; this remains a fictional-data prototype, not a clinical system.
 
 - **Private online storage:** the hosted interface saves to Cloudflare D1. The same signed-in workspace is available on your phone and computer; refresh to see another device's latest changes. Conflicting changes are rejected rather than overwritten. Nothing is saved into the public case CSV.
-- **One owner:** sign in with the configured Gmail address and an eight-digit, single-use email code. Codes expire after ten minutes, guesses and sends are rate-limited, and sessions expire after eight hours. There is no public registration or first-visitor account claiming.
+- **One owner:** sign in with your configured username and password. No Gmail code or second factor is required by the app. Login attempts are rate-limited and sessions expire after eight hours. There is no public registration or first-visitor account claiming. Gmail is used only for reminder delivery.
 - **Hosted AI:** Workers AI interprets only the prompt you submit. Your entire database is not sent to the model. The same grounding checks and mandatory plan review as the local app apply. Free quota failures are explicit; manual entry remains available. No clinical recommendations are generated.
 - **Gmail reminders:** a hosted job checks every 15 minutes, using Massachusetts time, and sends at most once per day when there is due or overdue work. Your Mac can be off. Messages contain aggregate counts, not case details. Accepted by Gmail is not proof of inbox delivery; uncertain sends are not retried automatically.
 - **Confirmed retention rule:** keep all open cases. Remove a case from the active database after it has remained fully completed or cancelled for 30 calendar days. Reopening a milestone resets the clock. Unknown closure dates start a new clock rather than deleting an old case immediately. Provider recovery history, downloads, and the separate local/public demo copies are not purged by this rule.
@@ -38,9 +38,13 @@ npx wrangler d1 migrations apply aftercare-fictional --remote
 npm run cloud:deploy
 npx wrangler secret put GMAIL_ADDRESS
 npx wrangler secret put GMAIL_APP_PASSWORD
+# On this Mac, privately choose the app username/password, redeploy, and verify:
+npm run cloud:set-login
 ```
 
 Enter the Gmail address and its Google app password only into the private Wrangler prompts. They are stored as Cloudflare secrets, not in GitHub or browser assets. `APP_ORIGIN` must exactly match the HTTPS deployment address. The app fails closed until the owner and address are configured. TLS certificate verification stays enabled; the hosted transport uses Workers-native hostname resolution for Gmail.
+
+`cloud:set-login` uses private macOS dialogs, requires a 12-128 character app password, stores only a salted password verifier in the `OWNER_LOGIN` Cloudflare secret, and revokes previous sessions. It does not write the plaintext password to disk or modify case records. Its live verification requires Playwright's Chromium and WebKit browsers. Run it again to reset a forgotten password; there is no emailed reset code.
 
 Source pushes update the **public demo** through GitHub Actions. Deploy the hosted app explicitly with `npm run cloud:deploy`; there is no Cloudflare deployment credential in the public repository.
 
