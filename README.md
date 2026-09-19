@@ -8,9 +8,80 @@ This is a fictional-data demo, not a clinical system. Time savings, fewer missed
 
 **[Open Aftercare](https://muddaqureshi.github.io/Aftercare-Muj-Podiatrist/)**
 
-## Try it
+## Connected local pilot
 
-Six fictional cases load on your first visit, with dates relative to that day.
+The public link above is still a rule-based demo, now loading a **public fictional CSV snapshot** from [`data/cases.csv`](data/cases.csv). A **separate signed-in, single-surgeon pilot** runs on your Mac at **http://127.0.0.1:4317**. GitHub Pages cannot run its backend or write files by itself.
+
+The pilot includes:
+
+- **Real local AI:** Ollama with `qwen3:1.7b` interprets questions and drafts explicitly supplied plans. The server retrieves worklists directly from saved data; the model does not invent query results. Plan drafts must quote your timing, are checked against your words, and require clinician review and confirmation. You select the procedure and side; the AI does not choose them.
+- **Durable working records:** SQLite on this Mac, accessible from your signed-in browser profiles. Revision checks reject conflicting updates rather than silently overwriting them.
+- **Single-surgeon attendance workflow:** record completed milestones, confirmed no-shows, rescheduling, and your own outreach attempts. The interface does not require managing a team.
+- **Public fictional CSV snapshots:** in **Reminders & storage**, download a case CSV or select **Publish fictional data**. Publishing requires explicit confirmation that every case is invented. The local server uses this Mac's authenticated GitHub CLI to commit `data/cases.csv`; no GitHub credential goes into browser code. Account names, passwords, and reminder addresses are excluded from the CSV.
+- **Scheduled review reminders:** one daily run at the configured Massachusetts time. By default, messages go to a clearly labeled **local test inbox, not actual email**. Optional SMTP connects your email service. Emails include aggregate counts and a sign-in link—not patient codes, dates, or treatment details.
+
+### Start and use the pilot
+
+Requires Node.js **22.13+** and a recent Ollama installation. On this Mac, Ollama and the model were installed for the pilot.
+
+Start the local AI engine in one terminal:
+
+```sh
+OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 ollama serve
+```
+
+In another terminal:
+
+```sh
+cd Aftercare-Muj-Podiatrist
+ollama pull qwen3:1.7b
+npm ci
+npm run pilot
+```
+
+The model download is needed only once. If Ollama is already running, do not start a second engine.
+
+1. Open **http://127.0.0.1:4317** and create your own surgeon username/password. No default credentials are published. Six fictional cases are loaded.
+2. Use **Overview** for overdue outcomes and this week's upcoming milestones. Open a case for attendance updates. Overdue is never automatically treated as a no-show.
+3. Open **AI assistant**. Try “Who needs attention?” or “What follow-ups are planned for next week?” To draft a plan, try “DEMO-077 had surgery today. Wound review in 7 days, mobility review in 6 weeks.” Select **Review and edit draft**, choose the procedure and side, preview the dates, and confirm.
+4. In **Reminders & storage**, choose a daily reminder time and select **Create test inbox message** to inspect a captured reminder.
+5. To share invented cases through the public site, select **Publish fictional data**, confirm, and wait for the GitHub Pages deployment. On the public page select **Load published cases**. New browsers load that snapshot automatically; existing browser-only edits are not silently overwritten.
+
+**Publication is a snapshot, not two-way cloud sync.** Edits on the public page remain in that browser and are not written back to the repository. The connected local pilot is the publishing tool. The CSV and its history are public; never publish real records, even with patient codes. Publication does not move the AI engine or scheduler onto GitHub Pages.
+
+**Small-model limitations:** everyday wording is interpreted by a real model but not guaranteed to be understood correctly. Unsupported or ungrounded plans produce an explicit error; there is no pretend AI fallback. Ambiguous timing is not inferred. Check all drafts, and use the manual plan form whenever interpretation fails. AI chat cannot independently change attendance or other records.
+
+### Actual email is optional and not connected by default
+
+Copy `.env.example` to a private `.env` and configure your provider's SMTP host, port (465 or 587), user, app password, and sender address. Restart the pilot, enter your actual reminder address in **Reminders & storage**, and send a test. Never commit `.env` or paste credentials into an AI chat.
+
+“Accepted by email server” is not a guarantee of inbox delivery. Failed or uncertain sends remain visible and are not automatically retried, to avoid duplicate emails. Inspect your inbox before sending another test.
+
+The scheduler runs **only while the server is running and this Mac is awake**. Starting after today's configured time catches up once; it does not replay previous days. A persistent run ledger prevents the same daily reminder being sent twice after a restart. No open work results in a logged skipped run.
+
+### Local pilot boundaries and storage
+
+This is **still a fictional-data prototype, not a HIPAA-compliant clinical system**. Codes and omitted birthdates do not establish de-identification. These features do not change that.
+
+- The server deliberately binds to **127.0.0.1 only**. It is not available from another computer or your phone. Phone-sized layouts are supported, but shared access from actual devices requires a separately reviewed deployment with HTTPS. Do not expose this prototype using a public tunnel.
+- Working data, accounts, sessions, activity history, and reminder logs live in `.data/aftercare.sqlite`. `.data/` and `.env` are gitignored and are never served as web assets. Only explicitly published fictional cases go into `data/cases.csv`. The deployment publishes the static demo and that CSV—not the backend, credentials, or private database.
+- Passwords are hashed; sessions use HttpOnly/SameSite cookies with an eight-hour expiry. Database files have owner-only file permissions, but there is **no application-level database encryption, protected clinical audit system, account-recovery workflow, automatic backup service, or production identity provider**.
+- To back up fictional pilot work, stop the pilot cleanly and copy the private `.data` directory to a location you control. This is not a substitute for production backup/restore management. Do not publish the copy.
+- There is no EHR connection, automatic attendance detection, patient email/SMS, or automatic two-way cloud sync. An outreach action records a contact attempt you made; it does not contact anyone.
+
+Verification commands:
+
+```sh
+npm run test:pilot
+npm run test:pilot:browser
+npm run test:pilot:ai
+```
+
+Server tests cover shared sessions, permissions, conflict rejection, restart persistence, reminder timing and failures, and AI output grounding. Browser tests use an explicitly labeled AI test double; **`test:pilot:ai` connects to the real local model** and requires Ollama to be running. Automated tests do not constitute clinical validation.
+
+## Try the public demo
+
+The public fictional CSV snapshot loads on your first visit. **Reset demo** creates six fresh examples with dates relative to today; those reset examples stay in your browser unless separately published from the local pilot.
 
 1. **Start with Overview.** “Needs attention” shows unrecorded past-due milestones and explicitly recorded no-shows. Those are different states: a past target date does not prove someone missed an appointment.
 2. **Record an update.** Tap **Mark complete** directly on Overview or Weekly brief, without opening the case. **Undo completion** restores the previous status (including a no-show) without changing dates; it remains available in the timeline after a reload. Open a case to reschedule one milestone, or use **More** to log your own outreach attempt, record a confirmed no-show, or cancel a milestone. Those actions still require confirmation. Activity history is preserved.
@@ -31,7 +102,7 @@ The assistant is **local and rule-based, not a connected AI model**. Unsupported
 This public demo is **not for real patient records** and is not represented as HIPAA-compliant.
 
 - A patient code and omitted birthdate do not automatically make a record de-identified. Exact treatment dates and a re-identifiable code can still be protected health information. Clinical use needs a suitable deployment and professional de-identification/compliance review.
-- Demo records stay in **this browser profile's local storage**. The site does not send them to GitHub, an AI service, an analytics platform, or a backend. Public source code contains only fictional fixtures. GitHub still serves the site itself and receives normal page/asset requests.
+- The published fictional snapshot is **public in GitHub and Git history**. Edits made on the public page stay in **this browser profile's local storage**; this page does not upload them to GitHub, an AI service, an analytics platform, or a backend. The separate authenticated local pilot can publish a new fictional snapshot after confirmation.
 - There is **no login, encryption layer, server backup, access control, cloud sync, or protected clinical audit system**. Other people using the same browser profile can access the data. GitHub Pages project sites under the same hostname share a browser origin; local storage is not isolated from other applications on that origin.
 - Use **Export backup** to save fictional work and **Restore backup** to replace this browser's data. Backups are unencrypted JSON. **Reset demo** replaces local records with fresh fictional examples. Clearing browser data removes saved records.
 - There is **no live appointment integration, attendance monitoring, scheduled notification, email, SMS, or outreach sending**. An outreach action only logs an attempt you made yourself. Lists refresh when the app is opened, focused, or the local date changes.

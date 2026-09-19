@@ -1,8 +1,22 @@
 import { test, expect } from "@playwright/test";
+import { makeSeed } from "../domain.js";
+import { patientsToCSV } from "../csv.js";
 
 test.beforeEach(async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-19T12:00:00-04:00") });
+  await page.route("**/data/cases.csv", route => route.fulfill({ contentType: "text/csv", body: patientsToCSV(makeSeed("2026-09-19")) }));
   await page.goto("/");
+});
+
+test("published CSV can be loaded explicitly without silently overwriting browser work", async ({ page }) => {
+  await page.getByRole("button", { name: "Mark DEMO-014: Wound review complete", exact: true }).click();
+  await expect(page.locator(".attention-stat .stat-number")).toContainText("1");
+  await page.locator("footer").getByRole("button", { name: "Load published cases" }).click();
+  await page.locator("#confirm-dialog").getByRole("button", { name: "Go back" }).click();
+  await expect(page.locator(".attention-stat .stat-number")).toContainText("1");
+  await page.locator("footer").getByRole("button", { name: "Load published cases" }).click();
+  await page.locator("#confirm-dialog").getByRole("button", { name: "Load published cases" }).click();
+  await expect(page.locator(".attention-stat .stat-number")).toContainText("2");
 });
 
 test("overview is usable without external requests, errors, or horizontal overflow", async ({ page }, testInfo) => {

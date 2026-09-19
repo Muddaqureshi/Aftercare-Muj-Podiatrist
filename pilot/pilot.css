@@ -1,0 +1,81 @@
+.pilot-shell { max-width: 1180px; margin: 0 auto; padding: 24px; }
+.pilot-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding-bottom: 20px; }
+.pilot-header .brand { font-size: 28px; }
+.pilot-header > div { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.pilot-nav { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 16px 0; }
+.pilot-nav button { min-height: 44px; padding: 10px 16px; border-radius: 7px; font-size: 15px; }
+.pilot-nav .active { background: #e5ede6; color: var(--green); font-weight: 600; }
+.pilot-notice { background: #eff2e7; padding: 14px 18px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; line-height: 1.6; }
+.pilot-notice.warning { background: #fff1de; border-color: #e5d1ad; }
+.pilot-shell main { min-height: 0; padding: 24px 0; }
+.pilot-shell .page-heading { align-items: start; }
+.pilot-shell .page-heading h1 { font-size: 36px; }
+.pilot-shell .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pilot-shell .panel { margin-top: 22px; }
+.pilot-shell .task-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
+.pilot-shell .task-open { display: block; padding: 0; }
+.pilot-shell .task-open strong, .pilot-shell .task-open small { display: block; }
+.pilot-shell .task-open strong { font-size: 16px; }
+.pilot-shell .task-open small { color: var(--muted); font-size: 14px; margin-top: 5px; }
+.pilot-shell .task-footer { padding: 0; gap: 10px; justify-content: flex-end; }
+.auth-card { max-width: 480px; margin: 6vh auto; padding: 28px; background: white; border: 1px solid var(--line); border-radius: 14px; }
+.auth-card .brand { margin-bottom: 28px; }
+.auth-card h1 { font-size: 32px; }
+.auth-card p { color: var(--muted); font-size: 15px; margin-top: 16px; }
+.auth-card form { margin-top: 25px; }
+.auth-card .field { margin-bottom: 18px; }
+.auth-card .button { width: 100%; margin-top: 8px; }
+.pilot-error { color: #943e2b; background: #fff0e9; border: 1px solid #efcbbf; padding: 14px 18px; margin-block: 12px; border-radius: 7px; font-size: 15px; }
+.pilot-error:empty { display: none; }
+.pilot-success { color: #27563b; background: #edf4e8; padding: 14px 18px; margin-block: 12px; border-radius: 7px; }
+.pilot-success:empty { display: none; }
+.connection { font-size: 14px; color: #4d654b; }
+.team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.settings-card { padding: 24px; border: 1px solid var(--line); background: white; border-radius: 10px; min-width: 0; }
+.settings-card h2 { margin-bottom: 16px; font-size: 22px; }
+.settings-card .field { margin: 16px 0; }
+.settings-card p, .settings-card li { font-size: 14px; line-height: 1.7; color: var(--muted); }
+.settings-card ul { padding-left: 20px; }
+.check-field { display: flex; gap: 10px; align-items: center; font-size: 15px; min-height: 44px; }
+.check-field input { width: 20px; height: 20px; }
+.mail-item { padding: 20px; border-bottom: 1px solid var(--line); }
+.mail-item summary { cursor: pointer; font-size: 15px; line-height: 1.7; min-height: 44px; }
+.mail-item pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 14px; }
+.mail-item .badge { margin-right: 8px; }
+.ai-box { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+.ai-box textarea { min-height: 135px; }
+.ai-box .heading-actions { margin-top: 14px; justify-content: flex-end; }
+.ai-examples { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.ai-examples button { text-align: left; background: #eff3e7; border-radius: 20px; padding: 10px 14px; font-size: 14px; min-height: 44px; }
+.ai-response { margin-top: 24px; }
+.ai-response h2 { font-size: 24px; }
+.ai-response > p { margin: 12px 0; line-height: 1.7; font-size: 15px; color: var(--muted); }
+.ai-sources { margin-block: 16px; border-left: 3px solid #b6cbb0; padding: 12px 16px; background: #f4f6ee; font-size: 14px; }
+.ai-sources ul { padding-left: 18px; }
+.pilot-dialog-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.pilot-dialog-actions .button { min-height: 44px; }
+.pilot-timeline-item { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.pilot-timeline-item h3 { font-size: 17px; margin-bottom: 8px; }
+.pilot-timeline-item p { font-size: 14px; color: var(--muted); margin-block: 8px; }
+.pilot-timeline-item details { margin-top: 10px; font-size: 14px; }
+.pilot-timeline-item summary { min-height: 44px; padding-block: 10px; cursor: pointer; }
+.pilot-footnote { color: var(--muted); font-size: 13px; line-height: 1.7; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 16px; }
+.pilot-shell .completion-notice { position: static; padding: 12px 16px; border-radius: 7px; }
+.pilot-shell input, .pilot-shell textarea, .pilot-shell select, .auth-card input { font-size: 16px; }
+@media (max-width: 730px) {
+  .pilot-shell { padding: 16px; }
+  .pilot-header { gap: 12px; }
+  .pilot-header > div { gap: 8px; }
+  .pilot-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .pilot-nav button { padding: 12px 6px; }
+  .pilot-shell .stats-grid { grid-template-columns: 1fr; gap: 12px; }
+  .pilot-shell .stat-card { padding: 16px; }
+  .pilot-shell .stat-number { margin-block: 8px; font-size: 32px; }
+  .pilot-shell .task-row { grid-template-columns: minmax(0, 1fr); }
+  .pilot-shell .task-footer { justify-content: space-between; }
+  .pilot-shell .task-footer button { margin-left: auto; }
+  .team-grid { grid-template-columns: minmax(0, 1fr); }
+  .auth-card { margin: 24px 16px; padding: 24px 20px; }
+  .ai-box, .settings-card { padding: 18px; }
+  .pilot-shell .page-heading h1 { font-size: 30px; }
+}

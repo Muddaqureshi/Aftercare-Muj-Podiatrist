@@ -3,6 +3,7 @@ import {
   milestoneState, isOpen, canUndoCompletion, allTasks, attentionTasks, weeklyTasks, nextMilestone,
   createPatient, updateMilestone, parseAssistant, makeSeed, validateStore, makeCalendar
 } from "./domain.js";
+import { patientsFromCSV } from "./csv.js";
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -40,11 +41,17 @@ const messages = [];
 
 try {
   const stored = localStorage.getItem(STORAGE_KEY);
-  state.patients = stored ? validateStore(JSON.parse(stored)).patients : makeSeed(state.today);
+  state.patients = stored ? validateStore(JSON.parse(stored)).patients : await publishedCases();
   if (!stored) localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, patients: state.patients }));
 } catch (error) {
-  startupError = `Browser data could not be loaded or saved: ${error.message}. Fictional examples are shown. Changes are disabled until you reset the demo or enable browser storage.`;
+  startupError = `Demo records could not be loaded or saved: ${error.message}. Fictional examples are shown. Changes are disabled until you reset the demo or enable browser storage.`;
   state.patients = makeSeed(state.today);
+}
+
+async function publishedCases() {
+  const response = await fetch("./data/cases.csv", { cache: "no-store" });
+  if (!response.ok) throw new Error(`The public CSV snapshot could not be loaded (HTTP ${response.status}).`);
+  return patientsFromCSV(await response.text());
 }
 
 function commit(patients, reset = false) {
@@ -163,13 +170,13 @@ function render() {
     </aside>
     <div class="workspace">
       <header class="topbar"><div><span class="practice-icon">${icon("plus")}</span><span>Podiatry workspace</span><span class="divider">/</span><span class="muted">${nav.find(item => item[0] === state.view)[2]}</span></div><button class="assistant-top" data-action="assistant">${icon("spark")}<span>Ask Aftercare</span><kbd>⌘ K</kbd></button></header>
-      <div class="demo-banner">${icon("info")}<span><strong>Fictional demo.</strong> Use sample codes only—not real patient data. Plans stay in this browser.</span><button data-action="about">How it works ${icon("arrow")}</button></div>
+      <div class="demo-banner">${icon("info")}<span><strong>Public fictional demo.</strong> Loads a published CSV snapshot; edits stay in this browser until separately published from the local pilot.</span><button data-action="about">How it works ${icon("arrow")}</button></div>
       ${startupError ? `<div class="storage-error" role="alert">${esc(startupError)} <button class="text-button" data-action="reset">Reset demo</button></div>` : ""}
       ${completionNotice()}
       <main id="main" tabindex="-1">
         ${state.view === "overview" ? renderOverview(attention, week) : state.view === "patients" ? renderPatients() : renderWeek()}
       </main>
-      <footer><span>Thoughtfully organized. Clinician directed.</span><div><button data-action="export">Export backup</button><button data-action="import">Restore backup</button><button data-action="reset">Reset demo</button></div></footer>
+      <footer><span>Thoughtfully organized. Clinician directed.</span><div><button data-action="published">Load published cases</button><button data-action="export">Export backup</button><button data-action="import">Restore backup</button><button data-action="reset">Reset demo</button></div></footer>
     </div><input id="import-file" type="file" accept=".json,application/json" hidden>`;
 }
 
@@ -399,7 +406,7 @@ function download(name, content, type) {
 function about() {
   confirmation({
     title: "A calmer workflow. An honest demo.",
-    content: `<div class="about-copy"><p><strong>What works:</strong> code-based cases, your milestone dates, recorded outcomes, overdue lists, a weekly brief, calendar exports, and a local rule-based assistant.</p><p><strong>Where data lives:</strong> this browser’s local storage on this device. No records are committed to GitHub, sent to a server, or shared with an AI provider. Anyone using this browser profile can access them. Clearing site data removes them; exported backups are unencrypted.</p><p><strong>What this is not:</strong> a secured clinical record, an EHR integration, a connected AI model, or an automated reminder service. It cannot tell whether someone attended unless you record it.</p><p><strong>Codes are not automatic de-identification.</strong> Dates and a re-identifiable code can still be protected health information. Use fictional data here. Real use needs an appropriate deployment and de-identification/compliance review.</p><p>All example schedules are fictional interface demonstrations, not postoperative protocols. Clinical decisions remain yours.</p></div>`,
+    content: `<div class="about-copy"><p><strong>What works:</strong> code-based cases, your milestone dates, recorded outcomes, overdue lists, a weekly brief, calendar exports, and a local rule-based assistant.</p><p><strong>Public snapshot:</strong> the fictional case CSV is stored publicly in the GitHub repository, including Git history. New browsers load it on their first visit. Use “Load published cases” to replace this browser’s copy with the published snapshot.</p><p><strong>Your edits:</strong> changes on this page stay in this browser and are not automatically uploaded. The separate local pilot can publish an explicitly confirmed fictional snapshot using authenticated server-side GitHub access. Browser backups are unencrypted.</p><p><strong>What this public page is not:</strong> a secured clinical record, EHR integration, connected AI model, or automated reminder service. The real AI and reminder scheduler are available only in the local pilot on your Mac.</p><p><strong>Codes are not automatic de-identification.</strong> Dates and a re-identifiable code can still be protected health information. Use invented cases only. Real use needs an appropriate deployment and de-identification/compliance review.</p><p>All example schedules are fictional interface demonstrations, not postoperative protocols. Clinical decisions remain yours.</p></div>`,
     label: "Got it",
     onConfirm: () => {}
   });
@@ -485,6 +492,14 @@ document.addEventListener("click", async event => {
     } else if (action === "export") {
       download(`aftercare-demo-backup-${state.today}.json`, JSON.stringify({ version: 1, patients: state.patients }, null, 2), "application/json");
       toast("Fictional demo backup downloaded. The file is not encrypted.");
+    } else if (action === "published") {
+      const patients = await publishedCases();
+      confirmation({
+        title: "Load the public CSV snapshot?",
+        content: `<p>This replaces this browser’s cases with ${patients.length} fictional cases from the public repository snapshot. Export a backup first if you want to keep your browser-only edits.</p><p>GitHub Pages updates after publication finishes; a newly published snapshot may take a few minutes to appear.</p>`,
+        label: "Load published cases",
+        onConfirm: () => { commit(patients, true); messages.length = 0; toast("Published fictional cases loaded. New edits remain browser-local."); }
+      });
     } else if (action === "import") {
       $("#import-file").click();
     } else if (action === "reset") {

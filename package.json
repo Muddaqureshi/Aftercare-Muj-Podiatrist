@@ -5,8 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 4173 --bind 127.0.0.1",
-    "test": "node --test tests/domain.test.js",
-    "test:browser": "playwright test"
+    "test": "node --test tests/domain.test.js tests/csv.test.js",
+    "test:browser": "playwright test",
+    "pilot": "node --env-file-if-exists=.env pilot/server.js",
+    "test:pilot": "node --test tests/pilot.test.js",
+    "test:pilot:browser": "playwright test --config=pilot/playwright.config.js",
+    "test:pilot:ai": "node --env-file-if-exists=.env pilot/verify-ai.js"
+  },
+  "dependencies": {
+    "nodemailer": "^10.0.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2"

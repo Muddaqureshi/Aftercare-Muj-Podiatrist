@@ -24,8 +24,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run test:pilot
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
+      - run: npm run test:pilot:browser
 
   publish:
     if: github.event_name != 'pull_request'
@@ -43,7 +45,9 @@ jobs:
       - name: Assemble static site
         run: |
           mkdir _site
-          cp index.html app.js domain.js styles.css tokens.css favicon.svg .nojekyll _site/
+          cp index.html app.js domain.js csv.js styles.css tokens.css favicon.svg .nojekyll _site/
+          mkdir _site/data
+          cp data/cases.csv _site/data/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
