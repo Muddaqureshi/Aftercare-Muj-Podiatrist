@@ -25,6 +25,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run test:pilot
+      - run: npm run test:cloud
+      - run: npm run cloud:assets
+      - run: npx wrangler deploy --dry-run
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:browser
       - run: npm run test:pilot:browser

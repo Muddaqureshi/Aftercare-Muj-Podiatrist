@@ -2,19 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from "node:crypto";
-import { createPatient, makeSeed, updateMilestone, validateStore } from "../domain.js";
-
-export class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
-}
-
-export function clinicClock(now = new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", hourCycle: "h23"
-  }).formatToParts(now).map(p => [p.type, p.value]));
-  return { today: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
-}
+import { makeSeed } from "../domain.js";
+import { HttpError, clinicClock, mutatePatients } from "../backend-shared.js";
+export { HttpError, clinicClock, requireClinician } from "../backend-shared.js";
 
 export function hashToken(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -88,10 +78,6 @@ export function setup(db, body, now) {
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
-export function requireClinician(user) {
-  if (user.role !== "clinician") throw new HttpError(403, "Only the clinician account can manage plans, team members, and reminder settings.");
-}
-
 export function mutate(db, user, body, now) {
   if (!Number.isInteger(body.revision)) throw new HttpError(400, "A workspace revision is required.");
   db.exec("BEGIN IMMEDIATE");
@@ -99,26 +85,7 @@ export function mutate(db, user, body, now) {
     const state = getState(db);
     if (state.revision !== body.revision) throw new HttpError(409, "Someone updated this workspace. Refresh and review the latest record before trying again.");
     const today = clinicClock(now).today;
-    if (body.action === "add-case") {
-      requireClinician(user);
-      if (!body.fields || typeof body.fields.code !== "string" || typeof body.fields.plan !== "string") throw new HttpError(400, "Enter a patient code and your plan.");
-      try { state.patients.push(createPatient(body.fields, state.patients, today)); }
-      catch (error) { throw new HttpError(400, error.message); }
-    } else if (body.action === "milestone") {
-      if (!["complete", "undo-complete", "miss", "contact", "reschedule", "cancel"].includes(body.operation)) throw new HttpError(400, "Choose a supported milestone action.");
-      if (body.operation === "cancel") requireClinician(user);
-      const patient = state.patients.find(p => p.id === body.patientId);
-      if (!patient) throw new HttpError(404, "This case no longer exists.");
-      try {
-        const milestone = updateMilestone(patient, body.milestoneId, body.operation, today, body.newDate);
-        milestone.history.at(-1).recordedBy = user.username;
-        milestone.history.at(-1).recordedAt = now.toISOString();
-      } catch (error) { throw new HttpError(400, error.message); }
-    } else {
-      throw new HttpError(400, "This action is not supported.");
-    }
-    try { validateStore({ version: 1, patients: state.patients }); }
-    catch (error) { throw new HttpError(400, error.message); }
+    state.patients = mutatePatients(state.patients, user, body, now);
     db.prepare("UPDATE workspace SET patients=?,revision=revision+1 WHERE id=1").run(JSON.stringify(state.patients));
     db.prepare("INSERT INTO audit(user_id,action,case_id,milestone_id,at) VALUES(?,?,?,?,?)").run(user.id, body.action === "milestone" ? body.operation : body.action, body.patientId || state.patients.at(-1).id, body.milestoneId || null, now.toISOString());
     db.exec("COMMIT");

@@ -1,10 +1,12 @@
-import { PROCEDURES, formatDate, daysBetween, attentionTasks, weeklyTasks, isOpen, canUndoCompletion, milestoneState, createPatient } from "/domain.js";
+import { PROCEDURES, formatDate, addDays, daysBetween, attentionTasks, weeklyTasks, isOpen, canUndoCompletion, milestoneState, createPatient } from "/domain.js";
 import { patientsToCSV } from "/csv.js";
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const state = { user: null, patients: [], revision: 0, today: "", view: "overview", query: "", ai: null, reply: null, settings: null, notice: "", error: "", completion: null };
 let setupRequired = false, draft, fields, proposalRevision, confirmHandler, busy = false;
+let loginEmail = "", codeRequested = false;
+const hosted = () => state.deployment === "cloud";
 
 async function api(path, body) {
   let response;
@@ -14,7 +16,7 @@ async function api(path, body) {
       headers: body === undefined ? {} : { "Content-Type": "application/json", "X-Aftercare": "1" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     });
-  } catch { throw new Error("The local server is not reachable. Your change was not saved. Start the pilot and try again."); }
+  } catch { throw new Error("The server is not reachable. Saving was not confirmed. Check your connection, refresh, and review the records before retrying."); }
   let result;
   try { result = await response.json(); }
   catch { throw new Error("The server returned an unreadable response. No success was confirmed."); }
@@ -44,6 +46,10 @@ function showError(error) {
 }
 
 function renderAuth() {
+  if (hosted()) {
+    $("#pilot").innerHTML = `<main id="main" class="auth-card"><div class="brand"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</div><h1>Your private online workspace.</h1><p>Sign in with the owner's Gmail address. No separate password to remember.</p><p class="pilot-notice">Fictional cases only. Records are stored privately in Cloudflare—not in the public GitHub repository. This prototype is not approved for actual patient records.</p><form id="auth-form"><label class="field">Gmail address<input name="email" type="email" autocomplete="email" required value="${esc(loginEmail)}" ${codeRequested ? "readonly" : ""}></label>${codeRequested ? '<label class="field">Eight-digit sign-in code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" minlength="8" maxlength="8" required></label><p>Check Gmail. The code expires after 10 minutes and works once.</p>' : "<p>A sign-in code will be sent only to the configured owner.</p>"}<div id="auth-error" class="pilot-error" role="alert"></div><button class="button primary" type="submit">${codeRequested ? "Sign in" : "Send sign-in code"}</button>${codeRequested ? '<button class="text-button" type="button" data-action="new-login-code">Request another code</button>' : ""}</form></main>`;
+    return;
+  }
   $("#pilot").innerHTML = `<main id="main" class="auth-card"><div class="brand"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</div><h1>${setupRequired ? "Set up your local pilot." : "Sign in to Aftercare."}</h1><p>Shared follow-ups, real local AI, and a daily review reminder.</p><p class="pilot-notice">Fictional cases only. This runs on your Mac—not the public GitHub page. It is not approved for clinical records.</p><form id="auth-form"><label class="field">Username<input name="username" minlength="3" maxlength="40" autocomplete="username" required></label><label class="field">Password<input name="password" type="password" minlength="12" maxlength="128" autocomplete="${setupRequired ? "new-password" : "current-password"}" required></label><p class="field-help">Use at least 12 characters. Keep your password outside this repository.</p><div id="auth-error" class="pilot-error" role="alert"></div><button class="button primary" type="submit">${setupRequired ? "Create clinician account" : "Sign in"}</button></form><p>${setupRequired ? "The first account manages plans, staff access, and reminders. Six fictional cases will be added." : "Your records are in the local shared database, not this browser’s storage."}</p></main>`;
 }
 
@@ -67,9 +73,9 @@ function render() {
   if (!state.user) return renderAuth();
   const views = [["overview", "Overview"], ["patients", "Patients"], ["assistant", "AI assistant"], ...(state.user.role === "clinician" ? [["settings", "Reminders & storage"]] : [])];
   $("#pilot").innerHTML = `<div class="pilot-shell"><header class="pilot-header"><a class="brand" href="/"><img src="/favicon.svg" width="36" height="36" alt="">aftercare.</a><div><span>${esc(state.user.username)} · ${esc(state.user.role)}</span><button class="button secondary" data-action="refresh">Refresh shared records</button><button class="text-button" data-action="logout">Sign out</button></div></header>
-    <div class="pilot-notice"><strong>Single-surgeon pilot · fictional cases only.</strong> Your working records stay on this Mac; you can publish a fictional CSV snapshot to the public GitHub page. ${state.mailMode === "local-inbox" ? "Reminders go to the local test inbox—not your email." : "SMTP is configured; check delivery status in Reminders & storage."}</div>
+    <div class="pilot-notice"><strong>Single-surgeon pilot · fictional cases only.</strong> ${hosted() ? "Your records save to a private online database, not GitHub. AI and scheduled reminders run online; your Mac can be off." : "Your working records stay on this Mac; you can publish a fictional CSV snapshot to the public GitHub page."} ${state.mailMode === "local-inbox" ? "Reminders go to the local test inbox—not your email." : "Gmail delivery is configured; check its status in Reminders & storage."}</div>
     <nav class="pilot-nav" aria-label="Main navigation">${views.map(([view, label]) => `<button data-action="navigate" data-view="${view}" class="${state.view === view ? "active" : ""}" ${state.view === view ? 'aria-current="page"' : ""}>${label}</button>`).join("")}</nav>
-    <div id="page-error" class="pilot-error" role="alert">${esc(state.error)}</div><div class="pilot-success" role="status">${esc(state.notice)}</div>${notice()}<main id="main">${state.view === "overview" ? overview() : state.view === "patients" ? patientsView() : state.view === "assistant" ? assistantView() : settingsView()}</main><p class="pilot-footnote">Clinic dates use Massachusetts time (America/New_York). Attendance is entered by you or your staff—not inferred by AI. This prototype has no EHR integration, patient messaging, or cloud access. The server must be running and this Mac awake for scheduled reminders.</p></div>`;
+    <div id="page-error" class="pilot-error" role="alert">${esc(state.error)}</div><div class="pilot-success" role="status">${esc(state.notice)}</div>${notice()}<main id="main">${state.view === "overview" ? overview() : state.view === "patients" ? patientsView() : state.view === "assistant" ? assistantView() : settingsView()}</main><p class="pilot-footnote">Clinic dates use Massachusetts time (America/New_York). Attendance is entered by you—not inferred by AI. There is no EHR integration or patient messaging. ${hosted() ? "Free-service limits and outages can interrupt AI or reminders; check the worklist yourself. Open cases are kept. Fully completed or cancelled cases are removed after 30 days; provider recovery history can retain deleted data longer." : "The server must be running and this Mac awake for scheduled reminders."}</p></div>`;
 }
 
 function overview() {
@@ -97,6 +103,7 @@ function showPatient(id) {
   const dialog = $("#patient-dialog");
   const position = dialog.scrollTop;
   dialog.innerHTML = `<div class="dialog-heading"><div><p class="eyebrow">SHARED RECOVERY TIMELINE</p><h2 id="patient-title">${esc(patient.code)}</h2></div><button class="icon-button" data-action="close" aria-label="Close patient">✕</button></div><p class="dialog-intro">${esc(patient.procedure)} · ${esc(patient.side)}<br>Surgery ${formatDate(patient.surgeryDate, { year: "numeric" })}</p><div class="pilot-error" data-error role="alert"></div><div class="pilot-success" id="patient-status" role="status"></div>
+    ${hosted() && state.closedSince?.[patient.id] ? `<p class="pilot-notice warning">All milestones are closed. This fictional case is scheduled for removal on ${formatDate(addDays(state.closedSince[patient.id], 30), { year: "numeric" })}. Reopening a milestone resets the retention clock.</p>` : ""}
     ${[...patient.milestones].sort((a, b) => a.date.localeCompare(b.date)).map(m => `<section class="pilot-timeline-item" data-milestone="${m.id}"><h3>${esc(m.label)}</h3><p>${formatDate(m.date, { year: "numeric" })} · Post-op day ${daysBetween(patient.surgeryDate, m.date)}</p>${badge(m)}${m.completedDate ? `<p>Completed ${formatDate(m.completedDate, { year: "numeric" })}</p>` : ""}<div class="pilot-dialog-actions">
     ${isOpen(m) ? `${patient.surgeryDate <= state.today ? `<button class="button secondary" data-action="complete" data-patient="${id}" data-id="${m.id}">Mark complete</button>` : ""}<button class="button secondary" data-action="reschedule" data-patient="${id}" data-id="${m.id}">Reschedule</button>${m.date <= state.today && m.status !== "missed" ? `<button class="text-button" data-action="confirm-action" data-operation="miss" data-patient="${id}" data-id="${m.id}">Record confirmed no-show</button>` : ""}<button class="text-button" data-action="confirm-action" data-operation="contact" data-patient="${id}" data-id="${m.id}">Log outreach attempt</button>${state.user.role === "clinician" ? `<button class="text-button" data-action="confirm-action" data-operation="cancel" data-patient="${id}" data-id="${m.id}">Cancel milestone</button>` : ""}` : ""}
     ${canUndoCompletion(m) ? `<button class="text-button" data-action="undo-complete" data-patient="${id}" data-id="${m.id}">Undo completion</button>` : ""}</div>
@@ -120,7 +127,7 @@ function preview(fieldsToPreview) {
 }
 
 function assistantView() {
-  return `<section class="page-heading"><div><h1>Ask your local AI assistant.</h1><p>Use everyday words to find follow-ups or draft your own plan.</p></div></section><p class="pilot-notice ${state.ai?.ready ? "" : "warning"}"><strong>${state.ai?.ready ? `Connected · ${esc(state.ai.model)}` : "AI connection"}</strong><br>${esc(state.ai?.message || "Checking the local AI engine…")}</p><div class="ai-examples"><button data-action="example" data-prompt="Who needs my attention this week?">Who needs attention?</button><button data-action="example" data-prompt="What follow-ups are planned for next week?">Next week’s follow-ups</button>${state.user.role === "clinician" ? `<button data-action="example" data-prompt="DEMO-077 had surgery today. Wound review in 7 days, mobility review in 6 weeks.">Draft my own plan</button>` : ""}</div><form id="ai-form" class="ai-box"><label class="field">Your question or plan<textarea id="ai-prompt" name="prompt" maxlength="5000" required placeholder="Example: DEMO-077 had surgery today. Wound review in 7 days, mobility review in 6 weeks."></textarea></label><p class="field-help">Only the words you enter are sent to the model on this Mac. AI interprets the request; saved-record lists and dates are computed by the app. It does not provide medical advice.</p><div class="heading-actions"><button class="button secondary" type="button" data-action="ai-status">Check connection</button><button class="button primary" type="submit">Ask local AI</button></div><p id="ai-progress" role="status"></p></form><section class="ai-response" aria-live="polite">${replyView()}</section>`;
+  return `<section class="page-heading"><div><h1>Ask your ${hosted() ? "online" : "local"} AI assistant.</h1><p>Use everyday words to find follow-ups or draft your own plan.</p></div></section><p class="pilot-notice ${state.ai?.ready ? "" : "warning"}"><strong>${state.ai?.ready ? `Configured · ${esc(state.ai.model)}` : "AI connection"}</strong><br>${esc(state.ai?.message || "Checking the AI engine…")}</p><div class="ai-examples"><button data-action="example" data-prompt="Who needs my attention this week?">Who needs attention?</button><button data-action="example" data-prompt="What follow-ups are planned for next week?">Next week’s follow-ups</button>${state.user.role === "clinician" ? `<button data-action="example" data-prompt="DEMO-077 had surgery today. Wound review in 7 days, mobility review in 6 weeks.">Draft my own plan</button>` : ""}</div><form id="ai-form" class="ai-box"><label class="field">Your question or plan<textarea id="ai-prompt" name="prompt" maxlength="5000" required placeholder="Example: DEMO-077 had surgery today. Wound review in 7 days, mobility review in 6 weeks."></textarea></label><p class="field-help">Only the words you enter are sent to ${hosted() ? "Cloudflare's hosted model. Use fictional information only" : "the model on this Mac"}. AI interprets the request; saved-record lists and dates are computed by the app. It does not provide medical advice.</p><div class="heading-actions"><button class="button secondary" type="button" data-action="ai-status">Check connection</button><button class="button primary" type="submit">${hosted() ? "Ask AI" : "Ask local AI"}</button></div><p id="ai-progress" role="status"></p></form><section class="ai-response" aria-live="polite">${replyView()}</section>`;
 }
 
 function replyView() {
@@ -131,10 +138,15 @@ function replyView() {
 
 function settingsView() {
   const data = state.settings;
+  if (hosted() && data) return cloudSettingsView(data);
   if (!data) return "<p>Loading team and reminder settings…</p>";
   return `<section class="page-heading"><div><h1>Reminders & storage.</h1><p>One surgeon. A local working copy and an optional public fictional snapshot.</p></div></section><div class="team-grid"><section class="settings-card"><h2>Daily review reminder</h2><p class="pilot-notice ${data.mailMode === "local-inbox" ? "warning" : ""}">${data.mailMode === "local-inbox" ? "LOCAL TEST INBOX: no emails leave this Mac. Connect SMTP in the private .env file for real delivery." : "SMTP connected. “Accepted” means the email server accepted the message—not a guarantee it reached your inbox."}</p><form id="reminder-form"><label class="check-field"><input type="checkbox" name="enabled" ${data.settings.enabled ? "checked" : ""}>Enable one daily reminder</label><label class="field">Time in Massachusetts<input name="time" type="time" required value="${esc(data.settings.time)}"></label><label class="field">${data.mailMode === "local-inbox" ? "Preview email address (not delivered)" : "Your reminder email"}<input name="recipient" type="email" required value="${esc(data.settings.recipient)}"></label><button class="button primary" type="submit">Save reminder settings</button></form><button class="text-button" data-action="test-email">${data.mailMode === "local-inbox" ? "Create test inbox message" : "Send test email"}</button><p>The server must stay running and this Mac awake. If started after the set time, today’s reminder is caught up once; previous days are not replayed. No patient codes or treatment details are included.</p></section>
     <section class="settings-card"><h2>Fictional CSV snapshots</h2><p>Your local database saves every update. A CSV snapshot can also be downloaded or published to <strong>Muddaqureshi/Aftercare-Muj-Podiatrist</strong>.</p><p class="pilot-notice warning"><strong>Public means public.</strong> Publishing includes every case, surgery date, and milestone in the snapshot. They remain in Git history. Use invented cases only—not coded real patients. Account names and passwords are excluded.</p><div class="pilot-dialog-actions"><button class="button secondary" data-action="download-csv">Download case CSV</button><button class="button primary" data-action="publish">Publish fictional data</button></div><p>The GitHub page can read the published snapshot from any device. Browser edits are not automatically uploaded. After publication, wait for deployment and select <strong>Load published cases</strong> on the public page.</p><p>Publishing uses this Mac’s signed-in GitHub CLI. No GitHub token is placed in the browser. The real AI and scheduler still run here on your Mac.</p></section></div>
     <section class="panel"><div class="panel-heading"><div><h2>${data.mailMode === "local-inbox" ? "Local reminder inbox" : "Reminder delivery log"}</h2><p>Failed or uncertain deliveries are not automatically retried. Check the inbox before sending again.</p></div></div>${data.reminders.length ? data.reminders.map(r => `<details class="mail-item"><summary><span class="badge ${r.status === "failed" || r.status === "uncertain" ? "missed" : "completed"}">${esc({ captured: "Local preview · not emailed", accepted: "Accepted by email server", failed: "Failed", uncertain: "Delivery uncertain", skipped: "No open work · skipped", sending: "Sending" }[r.status])}</span>${esc(r.subject)}<br>${esc(r.created_at)} · ${esc(r.recipient)}</summary>${r.error ? `<p class="pilot-error">${esc(r.error)}</p>` : ""}<pre>${esc(r.body)}</pre></details>`).join("") : '<div class="empty-state">No reminder runs yet. Create a test message to check the workflow.</div>'}</section>`;
+}
+
+function cloudSettingsView(data) {
+  return `<section class="page-heading"><div><h1>Reminders & storage.</h1><p>Your private online workspace. No public CSV publishing.</p></div></section><div class="team-grid"><section class="settings-card"><h2>Daily Gmail reminder</h2><form id="reminder-form"><label class="check-field"><input type="checkbox" name="enabled" ${data.settings.enabled ? "checked" : ""}>Enable one daily reminder</label><label class="field">Time in Massachusetts<input name="time" type="time" required value="${esc(data.settings.time)}"></label><label class="field">Your reminder email<input name="recipient" type="email" readonly value="${esc(data.settings.recipient)}"></label><button class="button primary" type="submit">Save reminder settings</button></form><button class="text-button" data-action="test-email">Send test email</button><p>The hosted scheduler checks every 15 minutes and sends once on or after the selected time when there is open work due. Your Mac can be off. Free-service limits or outages can delay or prevent delivery. Past days are not replayed.</p></section><section class="settings-card"><h2>Private records & automatic cleanup</h2><p>Every saved change goes to the online database. Open this same signed-in app on your phone or computer; refresh to see changes from the other device.</p><p>Open cases are kept. A case is removed 30 days after its last milestone is completed or cancelled. Reopening a milestone resets that clock. Provider recovery history may keep deleted data longer; downloaded copies are not automatically deleted.</p><p>This is a fictional-data prototype, not a clinical record system. Nothing is published to the GitHub case CSV.</p><button class="button secondary" data-action="download-csv">Download case CSV</button>${state.patients.length ? "" : '<button class="button secondary" data-action="load-demo">Load six fictional examples</button>'}</section></div><section class="panel"><div class="panel-heading"><div><h2>Reminder delivery log</h2><p>Accepted means Gmail accepted the message, not proof of inbox delivery. Uncertain deliveries are not retried automatically.</p></div></div>${data.reminders.length ? data.reminders.map(r => `<details class="mail-item"><summary><span class="badge ${["uncertain", "failed"].includes(r.status) ? "missed" : "completed"}">${esc({ accepted: "Accepted by Gmail", skipped: "No open work · skipped", sending: "Sending", uncertain: "Delivery uncertain", failed: "Failed" }[r.status])}</span> ${esc(r.created_at)}</summary>${r.error ? `<p class="pilot-error">${esc(r.error)}</p>` : ""}<pre>${esc(r.body)}</pre></details>`).join("") : '<div class="empty-state">No reminder runs yet.</div>'}</section>`;
 }
 
 async function change(operation, patientId, milestoneId, newDate, revision = state.revision) {
@@ -169,7 +181,8 @@ document.addEventListener("click", async event => {
   const locks = ["complete", "undo-complete", "confirm", "save-plan", "test-email", "logout"];
   if (locks.includes(action)) { busy = true; button.disabled = true; }
   try {
-    if (action === "close") button.closest("dialog").close();
+    if (action === "new-login-code") { codeRequested = false; renderAuth(); }
+    else if (action === "close") button.closest("dialog").close();
     else if (action === "logout") {
       await api("/api/logout", {});
       location.reload();
@@ -216,7 +229,15 @@ document.addEventListener("click", async event => {
       const link = document.createElement("a");
       link.href = url; link.download = `aftercare-fictional-${state.today}.csv`; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } else if (action === "publish") {
+    } else if (action === "load-demo" && hosted()) {
+      const revision = state.revision;
+      $("#confirm-dialog").innerHTML = '<div class="dialog-heading"><h2 id="confirm-title">Load fictional examples?</h2></div><p>Six invented cases will be saved to your empty online workspace. They are not postoperative protocols or actual patients.</p><div data-error class="pilot-error" role="alert"></div><div class="dialog-actions"><button class="button secondary" data-action="close">Cancel</button><button class="button primary" data-action="confirm">Load examples</button></div>';
+      confirmHandler = async () => {
+        Object.assign(state, await api("/api/actions", { action: "load-demo", revision, fictionalOnly: true }));
+        state.notice = "Six fictional examples saved online."; render();
+      };
+      $("#confirm-dialog").showModal();
+    } else if (action === "publish" && !hosted()) {
       const revision = state.revision;
       $("#confirm-dialog").innerHTML = `<div class="dialog-heading"><h2 id="confirm-title">Publish these fictional cases publicly?</h2><button class="icon-button" data-action="close" aria-label="Close publication">✕</button></div><p>All ${state.patients.length} cases, dates, and milestone records will be written to a CSV file in the public repository and retained in Git history.</p><label class="check-field"><input id="fictional-only" type="checkbox">Every case is invented and contains no real patient data.</label><div data-error class="pilot-error" role="alert"></div><div class="dialog-actions"><button class="button secondary" data-action="close">Cancel</button><button class="button primary" data-action="confirm">Confirm publication</button></div>`;
       confirmHandler = async () => {
@@ -240,16 +261,21 @@ document.addEventListener("submit", async event => {
   try {
     if (form.id === "auth-form") {
       const result = await api(setupRequired ? "/api/setup" : "/api/login", values);
+      if (result.codeSent) {
+        loginEmail = values.email; codeRequested = true; renderAuth();
+        $("#auth-form input[name='code']").focus();
+        return;
+      }
       state.user = result.user; setupRequired = false; await loadState(); render();
     } else if (form.id === "case-form") preview(values);
     else if (form.id === "ai-form") {
-      $("#ai-progress").textContent = "The local model is reading your request. No records are being changed…";
+      $("#ai-progress").textContent = "The AI is reading your request. No records are being changed…";
       state.reply = await api("/api/assistant", values);
       $(".ai-response").innerHTML = replyView();
       $("#ai-progress").textContent = "Response ready. No records were changed.";
     } else if (form.id === "reminder-form") {
       await api("/api/settings", { enabled: values.enabled === "on", time: values.time, recipient: values.recipient });
-      state.settings = await api("/api/settings"); state.notice = "Daily reminder settings saved. The server must stay running."; render();
+      state.settings = await api("/api/settings"); state.notice = hosted() ? "Daily reminder settings saved online." : "Daily reminder settings saved. The server must stay running."; render();
     }
   } catch (error) {
     if ($("#ai-progress")) $("#ai-progress").textContent = "Request did not complete. No records were changed.";
@@ -263,6 +289,7 @@ document.addEventListener("input", event => {
 try {
   const bootstrap = await api("/api/bootstrap");
   setupRequired = bootstrap.setupRequired;
+  state.deployment = bootstrap.deployment || "local";
   state.user = bootstrap.user;
   if (state.user) await loadState();
   render();

@@ -10,12 +10,17 @@
     "pilot": "node --env-file-if-exists=.env pilot/server.js",
     "test:pilot": "node --test tests/pilot.test.js",
     "test:pilot:browser": "playwright test --config=pilot/playwright.config.js",
-    "test:pilot:ai": "node --env-file-if-exists=.env pilot/verify-ai.js"
+    "test:pilot:ai": "node --env-file-if-exists=.env pilot/verify-ai.js",
+    "cloud:assets": "node cloud/build-assets.js",
+    "cloud:dev": "npm run cloud:assets && wrangler dev",
+    "cloud:deploy": "npm run cloud:assets && wrangler deploy",
+    "test:cloud": "node --test tests/cloud.test.js"
   },
   "dependencies": {
     "nodemailer": "^10.0.9"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "wrangler": "^4.0.0"
   }
 }

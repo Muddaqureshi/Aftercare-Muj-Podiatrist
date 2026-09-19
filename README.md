@@ -6,7 +6,53 @@ Aftercare helps podiatric surgeons organize postoperative follow-ups in one plac
 
 This is a fictional-data demo, not a clinical system. Time savings, fewer missed follow-ups, and financial return have not been measured.
 
-**[Open Aftercare](https://muddaqureshi.github.io/Aftercare-Muj-Podiatrist/)**
+**[Open the online AI app](https://aftercare-muj-podiatrist.muddq-finances.workers.dev)** · [Public fictional demo](https://muddaqureshi.github.io/Aftercare-Muj-Podiatrist/)
+
+## Hosted fictional-data pilot
+
+The hosted workspace is at **https://aftercare-muj-podiatrist.muddq-finances.workers.dev**. It is separate from the public GitHub Pages demo and the local Mac pilot. Private saving, cross-browser access, hosted AI, and Gmail sending have been verified live; this remains a fictional-data prototype, not a clinical system.
+
+- **Private online storage:** the hosted interface saves to Cloudflare D1. The same signed-in workspace is available on your phone and computer; refresh to see another device's latest changes. Conflicting changes are rejected rather than overwritten. Nothing is saved into the public case CSV.
+- **One owner:** sign in with the configured Gmail address and an eight-digit, single-use email code. Codes expire after ten minutes, guesses and sends are rate-limited, and sessions expire after eight hours. There is no public registration or first-visitor account claiming.
+- **Hosted AI:** Workers AI interprets only the prompt you submit. Your entire database is not sent to the model. The same grounding checks and mandatory plan review as the local app apply. Free quota failures are explicit; manual entry remains available. No clinical recommendations are generated.
+- **Gmail reminders:** a hosted job checks every 15 minutes, using Massachusetts time, and sends at most once per day when there is due or overdue work. Your Mac can be off. Messages contain aggregate counts, not case details. Accepted by Gmail is not proof of inbox delivery; uncertain sends are not retried automatically.
+- **Confirmed retention rule:** keep all open cases. Remove a case from the active database after it has remained fully completed or cancelled for 30 calendar days. Reopening a milestone resets the clock. Unknown closure dates start a new clock rather than deleting an old case immediately. Provider recovery history, downloads, and the separate local/public demo copies are not purged by this rule.
+- **No automatic local upload:** the hosted workspace starts empty. You can enter a fictional case or load six explicitly fictional examples under **Reminders & storage**.
+
+For this migration, the old Mac pilot's daily reminder setting is disabled to avoid duplicate emails. Its records, manual test-email action, and local AI remain available.
+
+### Free-tier deployment
+
+This uses Workers, D1, Workers AI, and a cron trigger on the account's free plan. No paid upgrade is enabled by the deployment commands. Free quotas, service outages, and email-provider limits can interrupt service; this is not a guaranteed monitoring system.
+
+For a new installation, change the worker name, D1 database ID, and `APP_ORIGIN` in `wrangler.jsonc` to your own resources:
+
+```sh
+npm ci
+npx wrangler login
+npx wrangler d1 create aftercare-fictional
+# Update wrangler.jsonc with the new database ID and your workers.dev address.
+npx wrangler d1 migrations apply aftercare-fictional --remote
+npm run cloud:deploy
+npx wrangler secret put GMAIL_ADDRESS
+npx wrangler secret put GMAIL_APP_PASSWORD
+```
+
+Enter the Gmail address and its Google app password only into the private Wrangler prompts. They are stored as Cloudflare secrets, not in GitHub or browser assets. `APP_ORIGIN` must exactly match the HTTPS deployment address. The app fails closed until the owner and address are configured. TLS certificate verification stays enabled; the hosted transport uses Workers-native hostname resolution for Gmail.
+
+Source pushes update the **public demo** through GitHub Actions. Deploy the hosted app explicitly with `npm run cloud:deploy`; there is no Cloudflare deployment credential in the public repository.
+
+```sh
+npm run test:cloud
+npm run cloud:assets
+npx wrangler deploy --dry-run
+# Optional live check: uses your authenticated Cloudflare CLI; sends one test email.
+CLOUDFLARE_ACCOUNT_ID=your_account_id node cloud/verify-live.js
+```
+
+The live check creates a temporary, short-lived administrator-authorized session and one invented case, verifies real backend/model/browser behavior, then deletes only its own case and session. It does not upload your local database. It is not a public application endpoint.
+
+**Actual patient data is not approved for this deployment.** Free hosting and patient codes do not establish HIPAA compliance or de-identification. A production clinical service requires an appropriate hosting/AI/email arrangement, access and recovery controls, operational monitoring, and review of the practice's record-retention obligations.
 
 ## Connected local pilot
 

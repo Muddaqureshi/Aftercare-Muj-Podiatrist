@@ -1,5 +1,5 @@
 import { addDays, allTasks, attentionTasks, weeklyTasks, createPatient, PROCEDURES } from "../domain.js";
-import { HttpError } from "./store.js";
+import { HttpError } from "../backend-shared.js";
 
 const schema = {
   type: "object", additionalProperties: false,
@@ -81,7 +81,6 @@ export function resolveInterpretation(result, prompt, state, today) {
 export function makeAI({ model = "qwen3:1.7b", fetchImpl = fetch, endpoint = "http://127.0.0.1:11434" } = {}) {
   const url = new URL(endpoint);
   if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.protocol !== "http:") throw new Error("The pilot AI endpoint must be an HTTP loopback address.");
-  let busy = false;
   async function interpret(format, messages) {
     const response = await fetchImpl(`${endpoint}/api/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(90000),
@@ -96,6 +95,7 @@ export function makeAI({ model = "qwen3:1.7b", fetchImpl = fetch, endpoint = "ht
     catch { throw new HttpError(502, "The local AI returned an unreadable response. Nothing was changed; please try again."); }
   }
   return {
+    ...makeInterpreter({ interpret, model }),
     async status() {
       try {
         const response = await fetchImpl(`${endpoint}/api/tags`, { signal: AbortSignal.timeout(3000) });
@@ -106,10 +106,16 @@ export function makeAI({ model = "qwen3:1.7b", fetchImpl = fetch, endpoint = "ht
       } catch (error) {
         return { ready: false, model, message: `Local AI is unavailable (${error.message}). Start Ollama; questions are not answered by a pretend fallback.` };
       }
-    },
+    }
+  };
+}
+
+export function makeInterpreter({ interpret, model }) {
+  let busy = false;
+  return {
     async ask(prompt, state, today) {
       if (typeof prompt !== "string" || prompt.trim().length < 3 || prompt.length > 5000) throw new HttpError(400, "Enter a question or plan between 3 and 5,000 characters.");
-      if (busy) throw new HttpError(429, "The local AI is working on another request. Please wait and try again.");
+      if (busy) throw new HttpError(429, "The AI is working on another request. Please wait and try again.");
       busy = true;
       try {
         let parsed = await interpret(querySchema, [
@@ -134,7 +140,7 @@ export function makeAI({ model = "qwen3:1.7b", fetchImpl = fetch, endpoint = "ht
         return { ...resolveInterpretation(parsed, prompt, state, today), model };
       } catch (error) {
         if (error instanceof HttpError) throw error;
-        throw new HttpError(503, `The local AI could not finish (${error.name === "TimeoutError" ? "request timed out" : "connection failed"}). No changes were made.`);
+        throw new HttpError(503, `The AI could not finish (${error.name === "TimeoutError" ? "request timed out" : "connection failed"}). No changes were made.`);
       } finally { busy = false; }
     }
   };
