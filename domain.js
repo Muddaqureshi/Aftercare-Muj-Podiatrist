@@ -50,6 +50,13 @@ export function isOpen(milestone) {
   return milestone.status === "planned" || milestone.status === "missed";
 }
 
+export function canUndoCompletion(milestone) {
+  const last = milestone.history.at(-1);
+  return milestone.status === "completed" && last?.action === "complete"
+    && isOpen(last.previous) && last.previous.date === milestone.date
+    && last.on === milestone.completedDate;
+}
+
 export function allTasks(patients) {
   return patients.flatMap(patient => patient.milestones.map(milestone => ({ patient, milestone })));
 }
@@ -104,6 +111,11 @@ export function updateMilestone(patient, milestoneId, action, today, newDate) {
     if (patient.surgeryDate > today) throw new Error("A postoperative milestone cannot be completed before surgery.");
     milestone.status = "completed";
     milestone.completedDate = today;
+  } else if (action === "undo-complete") {
+    if (!canUndoCompletion(milestone)) throw new Error("This completion can no longer be undone. Review the current timeline.");
+    const original = milestone.history.at(-1).previous;
+    milestone.status = original.status;
+    milestone.completedDate = null;
   } else if (action === "miss") {
     if (milestone.date > today) throw new Error("A future visit cannot be marked as a no-show.");
     milestone.status = "missed";
@@ -184,7 +196,7 @@ export function validateStore(value) {
       if (m.completedDate !== null && (!validDate(m.completedDate) || m.completedDate < p.surgeryDate)) throw new Error("The backup contains an invalid completion date.");
       if ((m.status === "completed") !== (m.completedDate !== null)) throw new Error("A completed milestone needs an actual completion date.");
       for (const event of m.history) {
-        if (!event || !["complete", "miss", "reschedule", "cancel", "contact"].includes(event.action) || !validDate(event.on) || !event.previous || !STATUSES.includes(event.previous.status) || !validDate(event.previous.date) || (event.previous.completedDate !== null && !validDate(event.previous.completedDate)) || (event.action === "reschedule" && !validDate(event.newDate))) throw new Error("The backup contains invalid history.");
+        if (!event || !["complete", "undo-complete", "miss", "reschedule", "cancel", "contact"].includes(event.action) || !validDate(event.on) || !event.previous || !STATUSES.includes(event.previous.status) || !validDate(event.previous.date) || (event.previous.completedDate !== null && !validDate(event.previous.completedDate)) || (event.action === "reschedule" && !validDate(event.newDate))) throw new Error("The backup contains invalid history.");
       }
     }
   }

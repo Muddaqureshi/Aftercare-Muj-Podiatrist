@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  localToday, validDate, addDays, daysBetween, weekBounds, milestoneState,
+  localToday, validDate, addDays, daysBetween, weekBounds, milestoneState, canUndoCompletion,
   attentionTasks, weeklyTasks, createPatient, parsePlan, updateMilestone,
   parseAssistant, makeSeed, validateStore, makeCalendar, isOpen
 } from "../domain.js";
@@ -70,6 +70,33 @@ test("completion removes attention and records the actual date", () => {
   assert.equal(m.history.at(-1).previous.status, "missed");
   assert.equal(attentionTasks(patients, today).length, 1);
   assert.throws(() => updateMilestone(p, m.id, "complete", today), /Only open/);
+});
+
+test("undo completion restores the original no-show or planned status without moving dates", () => {
+  for (const index of [0, 1]) {
+    const patients = makeSeed(today), p = patients[index], m = p.milestones[1];
+    const originalStatus = m.status;
+    const originalDate = m.date;
+    const otherMilestones = structuredClone(p.milestones.filter(item => item.id !== m.id));
+    updateMilestone(p, m.id, "complete", today);
+    assert.equal(canUndoCompletion(m), true);
+    updateMilestone(p, m.id, "undo-complete", today);
+    assert.equal(m.status, originalStatus);
+    assert.equal(m.date, originalDate);
+    assert.equal(m.completedDate, null);
+    assert.equal(m.history.at(-1).action, "undo-complete");
+    assert.equal(m.history.at(-1).previous.status, "completed");
+    assert.deepEqual(p.milestones.filter(item => item.id !== m.id), otherMilestones);
+    assert.equal(attentionTasks(patients, today).length, 2);
+    assert.doesNotThrow(() => validateStore({ version: 1, patients }));
+    assert.throws(() => updateMilestone(p, m.id, "undo-complete", today), /no longer/);
+  }
+});
+
+test("historical completions without a recorded previous state cannot be undone", () => {
+  const p = makeSeed(today)[0], m = p.milestones[0];
+  assert.equal(canUndoCompletion(m), false);
+  assert.throws(() => updateMilestone(p, m.id, "undo-complete", today), /no longer/);
 });
 
 test("no-shows never cascade dates and future no-shows are rejected", () => {

@@ -1,8 +1,10 @@
 # Aftercare
 
-**A little less to remember. A clearer view of every recovery.**
+**Postoperative follow-ups, organized around your plan.**
 
-A code-first postoperative workflow demo designed for a podiatric surgeon: see who needs attention, keep your own treatment milestones organized, and review the week ahead.
+Aftercare helps podiatric surgeons organize postoperative follow-ups in one place. Enter a patient code and your care milestones, then review what is due or overdue and record updates—designed to reduce manual tracking and the mental load between visits.
+
+This is a fictional-data demo, not a clinical system. Time savings, fewer missed follow-ups, and financial return have not been measured.
 
 **[Open Aftercare](https://muddaqureshi.github.io/Aftercare-Muj-Podiatrist/)**
 
@@ -11,10 +13,14 @@ A code-first postoperative workflow demo designed for a podiatric surgeon: see w
 Six fictional cases load on your first visit, with dates relative to that day.
 
 1. **Start with Overview.** “Needs attention” shows unrecorded past-due milestones and explicitly recorded no-shows. Those are different states: a past target date does not prove someone missed an appointment.
-2. **Open a case.** Review the timeline, confirm completion, reschedule one milestone, or use the three-dot menu to log your own outreach attempt, record a confirmed no-show, or cancel a milestone. Changes preserve a local activity history; other dates do not move automatically.
+2. **Record an update.** Tap **Mark complete** directly on Overview or Weekly brief, without opening the case. **Undo completion** restores the previous status (including a no-show) without changing dates; it remains available in the timeline after a reload. Open a case to reschedule one milestone, or use **More** to log your own outreach attempt, record a confirmed no-show, or cancel a milestone. Those actions still require confirmation. Activity history is preserved.
 3. **Add a case.** Enter a fictional code, procedure, side, and surgery date. Write your own milestones, for example `Day 7: My planned review` and `Week 6: My next review`. Preview the calculated dates before confirming.
 4. **Ask Aftercare.** Try “What needs attention?”, “What is due today?”, “What is coming next week?”, or “Show DEMO-014”. To stage a new plan: `Plan DEMO-042 on 2026-09-19: Day 7: My planned review; Week 3: My next review`. Nothing is saved until you review and confirm.
 5. **Open Weekly brief.** Navigate weeks, print a brief, or download open milestones as an all-day calendar file. Earlier unresolved milestones remain visible. Calendar downloads are snapshots, not live subscriptions; repeated imports can duplicate events.
+
+**Reading the counts:** “Needs attention” includes overdue updates and confirmed no-shows from any date. “Due today–Sunday” includes open items with target dates from today through Sunday. “This week’s completed” and the Weekly brief completion count both refer to completed milestones whose **planned dates** fall in the selected Monday–Sunday week. Actual completion dates are recorded separately in the timeline. The brief explicitly separates still-open and completed items.
+
+Navigation labels remain visible on phones and tablets. Lists and dialogs wrap long patient codes and milestone text; routine action targets are at least 44 pixels high.
 
 Keyboard: **Cmd/Ctrl + K** opens the assistant. **Escape** closes a dialog. In the assistant, **Enter** sends and **Shift + Enter** adds a line break.
 
@@ -29,7 +35,7 @@ This public demo is **not for real patient records** and is not represented as H
 - There is **no login, encryption layer, server backup, access control, cloud sync, or protected clinical audit system**. Other people using the same browser profile can access the data. GitHub Pages project sites under the same hostname share a browser origin; local storage is not isolated from other applications on that origin.
 - Use **Export backup** to save fictional work and **Restore backup** to replace this browser's data. Backups are unencrypted JSON. **Reset demo** replaces local records with fresh fictional examples. Clearing browser data removes saved records.
 - There is **no live appointment integration, attendance monitoring, scheduled notification, email, SMS, or outreach sending**. An outreach action only logs an attempt you made yourself. Lists refresh when the app is opened, focused, or the local date changes.
-- Milestones are planned calendar dates, not booked visits. Weeks run Monday–Sunday in the browser's local calendar. Completed dates record the actual local day of confirmation. The app does not change weekends, holidays, or downstream milestones automatically.
+- Milestones are planned calendar dates, not booked visits. Weeks run Monday–Sunday in the browser's local calendar. Completed dates record the actual local day you tap **Mark complete**. The app does not change weekends, holidays, or downstream milestones automatically.
 - This is a workflow demonstration, not an emergency monitoring system or a clinical decision-making tool.
 
 ## Moving toward real clinical use
@@ -47,7 +53,7 @@ Requirements: Node.js 22+, npm, and Python 3.
 ```sh
 npm ci
 npm test
-npx playwright install chromium
+npx playwright install chromium webkit
 npm run test:browser
 npm start
 ```
@@ -56,4 +62,4 @@ Open `http://127.0.0.1:4173`. Serve the folder over HTTP; do not open `index.htm
 
 `domain.js` holds calendar arithmetic, status changes, parsing, backup validation, and calendar export. `app.js` renders the interface and commits validated changes to local storage. Plain `YYYY-MM-DD` strings and UTC-noon arithmetic avoid UTC/local and daylight-saving date shifts.
 
-The workflow runs unit and Chromium desktop/mobile browser checks, then publishes only the static application files to GitHub Pages. Enable **Settings → Pages → Source: GitHub Actions** when deploying a fork.
+The workflow runs unit tests plus desktop/mobile Chromium and mobile WebKit (Safari engine) browser checks, then publishes only the static application files to GitHub Pages. Responsive checks cover 320–1440 pixel widths and maximum-length codes and milestone labels. Enable **Settings → Pages → Source: GitHub Actions** when deploying a fork.

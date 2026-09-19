@@ -14,7 +14,8 @@ export default defineConfig({
   },
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1050 } } },
-    { name: "mobile", use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" } }
+    { name: "mobile", use: { ...devices["iPhone 13"], defaultBrowserType: "chromium" } },
+    { name: "mobile-safari", use: { ...devices["iPhone 13"] } }
   ],
   webServer: {
     command: "npm start",
