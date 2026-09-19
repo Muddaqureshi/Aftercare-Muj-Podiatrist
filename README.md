@@ -8,6 +8,8 @@ This is a fictional-data demo, not a clinical system. Time savings, fewer missed
 
 **[Open the online AI app](https://aftercare-muj-podiatrist.muddq-finances.workers.dev)** · [Public fictional demo](https://muddaqureshi.github.io/Aftercare-Muj-Podiatrist/)
 
+**Project handoff:** [Context, architecture, and decisions](docs/PROJECT_CONTEXT.md) · [Setup, deployment, and operating guide](docs/OPERATIONS.md)
+
 ## Hosted fictional-data pilot
 
 The hosted workspace is at **https://aftercare-muj-podiatrist.muddq-finances.workers.dev**. It is separate from the public GitHub Pages demo and the local Mac pilot. Private saving, cross-browser access, hosted AI, and Gmail sending have been verified live; this remains a fictional-data prototype, not a clinical system.
