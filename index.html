@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#164f46">
+    <meta name="description" content="Aftercare: a fictional, code-first postoperative workflow demo. A calmer way to see upcoming follow-ups and outstanding care milestones.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <title>Aftercare · Your recovery workspace</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="stylesheet" href="./styles.css">
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to workspace</a>
+    <div id="app"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <dialog id="patient-dialog" class="drawer" aria-labelledby="patient-title"></dialog>
+    <dialog id="case-dialog" class="case-dialog" aria-labelledby="case-title"></dialog>
+    <dialog id="assistant-dialog" class="drawer assistant-drawer" aria-labelledby="assistant-title"></dialog>
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title"></dialog>
+    <noscript><p>Aftercare needs JavaScript to display this interactive fictional-patient demo. It does not connect to a clinical system.</p></noscript>
+  </body>
+</html>
