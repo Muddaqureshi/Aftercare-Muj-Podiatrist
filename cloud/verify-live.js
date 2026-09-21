@@ -89,6 +89,9 @@ try {
   await mobile.getByLabel("Find a case").fill(code);
   await mobile.getByRole("button", { name: new RegExp(code) }).waitFor();
   assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await mobile.getByRole("button", { name: "AI assistant", exact: true }).click();
+  await mobile.getByRole("heading", { name: "Ask your online AI assistant." }).waitFor();
+  assert.equal(await mobile.locator("#main .pilot-notice").count(), 0);
   await mobile.getByRole("button", { name: "Reminders & storage", exact: true }).click();
   await mobile.getByRole("heading", { name: "Shared records & automatic cleanup" }).waitFor();
   assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

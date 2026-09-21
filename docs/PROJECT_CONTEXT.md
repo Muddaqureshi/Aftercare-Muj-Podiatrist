@@ -12,6 +12,8 @@ The design priorities are plain language, readable text, visible navigation labe
 
 At the owner's request, the hosted dashboard omits the long public-demo banner and operational footnote. Public-access, reminder, and retention details remain under **Reminders & storage** and in this documentation; functionality and the local pilot's notices are unchanged.
 
+The hosted AI screen also omits the routine model-name/configuration description. Connection warnings and request errors remain visible; explicitly checking the configuration gives a brief confirmation.
+
 ## Scope and permissions
 
 - All three versions are **fictional-data prototypes**.
