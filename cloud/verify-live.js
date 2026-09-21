@@ -47,6 +47,7 @@ try {
   await page.goto(origin);
   await page.getByRole("button", { name: "Add a case", exact: true }).click();
   assert.equal(await page.locator("#auth-form").count(), 0);
+  assert.equal(await page.locator(".pilot-shell > .pilot-notice, .pilot-shell > .pilot-footnote").count(), 0);
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.getByLabel("Fictional patient code").fill(code);
   await page.getByLabel("Your milestones").fill("Day 7: Fictional review\nWeek 6: Fictional mobility review");

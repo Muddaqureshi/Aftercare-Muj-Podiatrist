@@ -10,6 +10,8 @@ The intended benefit is less manual tracking and a clearer view of follow-ups th
 
 The design priorities are plain language, readable text, visible navigation labels, phone-friendly layouts, no clipped labels, and few steps for routine updates.
 
+At the owner's request, the hosted dashboard omits the long public-demo banner and operational footnote. Public-access, reminder, and retention details remain under **Reminders & storage** and in this documentation; functionality and the local pilot's notices are unchanged.
+
 ## Scope and permissions
 
 - All three versions are **fictional-data prototypes**.
