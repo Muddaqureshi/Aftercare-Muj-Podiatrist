@@ -1,6 +1,6 @@
 # Project context and implementation decisions
 
-Last reviewed: September 19, 2026.
+Last reviewed: September 20, 2026.
 
 ## Purpose
 
@@ -18,6 +18,7 @@ The design priorities are plain language, readable text, visible navigation labe
 - The hosting target is one user, approximately 25 new cases per week, with free-tier services and no paid upgrades enabled by this implementation.
 - Local Gmail credentials were copied into Cloudflare secrets with the owner's authorization. Their values are deliberately absent from this documentation.
 - Local records were not automatically transferred to the hosted database.
+- On September 20, the owner explicitly confirmed that every hosted record is fictional and approved removing login. Anyone with the link may now view and edit the shared cases. This supersedes both earlier hosted login designs; local Mac login remains unchanged.
 - The requested retention rule is **30 days after every milestone is completed or cancelled**, not 30 days after surgery. Open and confirmed-no-show cases remain.
 
 This document records product and engineering context, not a verbatim transcript or a clinical record.
@@ -28,7 +29,7 @@ This document records product and engineering context, not a verbatim transcript
 |---|---|---|---|
 | GitHub Pages demo | Public, fictional demonstration | Starts from `data/cases.csv`; subsequent edits stay in that browser | Rule-based assistant; no server-side scheduler |
 | Local Mac pilot | Local experimentation | `.data/aftercare.sqlite` | Local Ollama; local or Gmail reminders while the server runs |
-| Hosted Cloudflare pilot | One signed-in online workspace | Private D1 database shared across the owner's devices | Workers AI and hosted Gmail reminder jobs |
+| Hosted Cloudflare pilot | Login-free public shared workspace | D1 records readable and editable by anyone with the link | Workers AI and hosted Gmail reminder jobs |
 
 The hosted app is the primary online experience:
 
@@ -45,12 +46,12 @@ The public repository is **Muddaqureshi/Aftercare-Muj-Podiatrist**. It contains 
 ```text
 Phone or computer
   -> HTTPS Cloudflare Worker
-     -> signed-in API -> private D1 records
+     -> public API -> shared fictional D1 records
      -> Workers AI -> validated interpretation -> deterministic record queries
      -> Gmail over authenticated TLS -> owner's inbox
 
 Cloudflare cron, every 15 minutes
-  -> retention and expired-session cleanup
+  -> retention and expired-rate-limit cleanup
   -> Massachusetts-time reminder eligibility
   -> durable daily send ledger
 
@@ -68,10 +69,8 @@ GitHub repository
 | `pilot/ai.js` | Shared interpretation/grounding checks and local Ollama transport |
 | `pilot/client.js` | Shared local/hosted interface; deployment-aware messaging |
 | `pilot/mailer.js` | SMTP transport reused by the local and hosted versions |
-| `cloud/worker.js` | Hosted HTTP API, username/password sign-in, and scheduled entry point |
-| `password-auth.js` | Shared password derivation and verifier comparison |
-| `cloud/set-login.js` | Private owner credential setup/reset and live browser verification |
-| `cloud/core.js` | D1 access, revision checks, sessions, rate limits, and retention |
+| `cloud/worker.js` | Public hosted HTTP API, private email boundary, and scheduled entry point |
+| `cloud/core.js` | D1 access, revision checks, anonymous rate limits, and retention |
 | `cloud/services.js` | Workers AI and Workers-native Gmail TLS connection |
 | `cloud/migrations/` | Versioned D1 schema |
 | `cloud/build-assets.js` | Explicit static asset allowlist; excludes records and secrets |
@@ -101,18 +100,18 @@ GitHub repository
 - The hosted model is `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, within the free Workers AI allowance. The earlier Llama 3.1 binding resolved to a deprecated model, even though a direct REST request still worked.
 - The local model remains `qwen3:1.7b`. Its structured schema avoids regex patterns that the local sampler could not compile.
 
-### Sign-in and email
+### Public access and private email administration
 
-- Hosted sign-in uses the configured owner's username and password, with no email code or second factor. This supersedes the initial email-code design at the owner's request.
-- Credential setup is private and administrator-authorized; no public account setup is exposed.
-- Password derivation uses Web Crypto PBKDF2-SHA256 with 600,000 iterations and a random 32-byte salt. The expensive derivation runs in the browser to stay within the free Worker's CPU budget. The server stores only a SHA-256 verifier of the derived proof, never that reusable proof or the plaintext password.
-- The public salt is not a credential. Treat the derived proof as password-equivalent: send it only over HTTPS, never log it, and never accept the stored verifier itself as a login proof.
-- Login guesses are rate-limited by IP and globally. Password resets revoke existing sessions without changing records.
-- Session cookies are Secure, HttpOnly, and SameSite=Strict. Only token hashes are stored; sessions expire after eight hours.
-- There is no public registration, first-visitor setup, or hosted public-CSV publishing endpoint.
-- Reminder emails contain aggregate counts and the sign-in link, not patient codes or treatment details.
+- Hosted browsing and case edits require no credentials. Shared editing is explicitly public, not private storage or a verified clinical identity.
+- New activity is attributed to **Public demo visitor**. Existing history is preserved.
+- Writes are capped at 30/minute/IP, 120/minute globally, and 500/day globally. AI is capped at 10/hour/IP, 20/hour globally, and 50/day globally. These are abuse limits, not authentication.
+- Login, logout, registration, setup, publication, settings-write, and test-email endpoints are unavailable. Exact-origin checks remain on writes.
+- The public settings response contains only reminder enablement, time, time zone, and mail mode. It excludes recipient addresses and delivery logs.
+- Gmail credentials and addresses remain in provider secrets. Only Cloudflare administrators can change the schedule or inspect delivery history; scheduled jobs are the only hosted email trigger.
+- Obsolete credential code and session tables were removed. Bootstrap expires the previous app cookie. Local Mac authentication is unchanged.
+- Reminder emails contain aggregate counts and the public demo link, not patient codes or treatment details. Public case edits can affect these counts, but cannot redirect email.
 - A durable daily key prevents duplicate scheduled sends. Uncertain delivery is not automatically retried.
-- Gmail acceptance is not proof of inbox delivery. Hosted Gmail delivery was confirmed during initial setup; subsequent sign-ins no longer send any email.
+- Gmail acceptance is not proof of inbox delivery. Hosted Gmail delivery was confirmed during initial setup; opening the app does not send email.
 - The hosted SMTP transport supplies a TLS socket resolved by the Workers runtime. Nodemailer's default Node DNS connection path failed in this runtime; TLS verification was not disabled.
 - The Mac pilot's daily reminder setting was disabled at cutover to avoid duplicate emails. Its other features and records remain available.
 
@@ -128,9 +127,9 @@ GitHub repository
 
 ## Verification completed
 
-Automated coverage includes date arithmetic, milestone actions, CSV handling, local persistence, hosted owner-only password sign-in, password derivation, rejection of stored-verifier replay, session expiry/rate limits, origin checks, stale-write conflicts, reminder deduplication, and retention boundaries.
+Automated coverage includes date arithmetic, milestone actions, CSV handling, local persistence and authentication, anonymous hosted access and rate limits, private email controls, origin checks, stale-write conflicts, reminder deduplication, and retention boundaries.
 
-The deployed app was also checked using actual D1 writes, the real hosted model, two browser engines, a phone-sized viewport, and a Gmail reminder send. Live-check records and its temporary session were removed afterward.
+Live verification uses actual D1 writes, the real hosted model, two fresh browser engines without cookies, and a phone-sized viewport. Only the uniquely named verification case is removed afterward. Gmail delivery was checked separately during initial setup; the public live-check script does not send email.
 
 These are software checks, not clinical validation or a compliance certification.
 

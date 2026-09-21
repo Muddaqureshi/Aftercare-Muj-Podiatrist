@@ -1,10 +1,9 @@
 import { HttpError, clinicClock, mutatePatients } from "../backend-shared.js";
 import { makeSeed } from "../domain.js";
-import { authenticated, hash, token, rateLimit, getState, closedCases, saveState, expireCases, surgeon, cookieName } from "./core.js";
+import { hash, rateLimit, getState, closedCases, saveState, expireCases, demoVisitor } from "./core.js";
 import { hostedAI, hostedMailer, sendReminder } from "./services.js";
-import { proofVerifier, sameVerifier } from "../password-auth.js";
 
-const assets = new Set(["/", "/index.html", "/domain.js", "/csv.js", "/password-auth.js", "/styles.css", "/tokens.css", "/favicon.svg", "/pilot/client.js", "/pilot/pilot.css"]);
+const assets = new Set(["/", "/index.html", "/domain.js", "/csv.js", "/styles.css", "/tokens.css", "/favicon.svg", "/pilot/client.js", "/pilot/pilot.css"]);
 const headers = {
   "Cache-Control": "no-store",
   "X-Content-Type-Options": "nosniff",
@@ -43,29 +42,6 @@ function configured(env, url) {
   if (!env.GMAIL_ADDRESS || !/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(env.GMAIL_ADDRESS)) throw new HttpError(503, "The owner account has not been configured.");
 }
 
-function loginProfile(env) {
-  let profile;
-  try { profile = JSON.parse(env.OWNER_LOGIN); }
-  catch { throw new HttpError(503, "The owner must finish setting up username-and-password sign-in."); }
-  if (!profile || profile.version !== 1 || !/^[a-z][a-z0-9._-]{2,39}$/.test(profile.username || "") || !/^[a-f0-9]{64}$/.test(profile.salt || "") || !/^[a-f0-9]{64}$/.test(profile.verifier || "")) throw new HttpError(503, "The owner login configuration is invalid.");
-  return profile;
-}
-
-async function login(request, env, now) {
-  const db = env.DB;
-  const ip = await hash(request.headers.get("CF-Connecting-IP") || "local");
-  await rateLimit(db, `password-auth:${ip}`, 20, 900, now);
-  await rateLimit(db, "password-auth-total", 100, 3600, now);
-  const body = await bodyJSON(request);
-  const profile = loginProfile(env);
-  if (typeof body.username !== "string" || typeof body.proof !== "string" || !/^[a-f0-9]{64}$/.test(body.proof)) throw new HttpError(401, "The username or password is incorrect.");
-  const matches = sameVerifier(await proofVerifier(body.proof), profile.verifier);
-  if (!matches || body.username.trim().toLowerCase() !== profile.username) throw new HttpError(401, "The username or password is incorrect.");
-  const secret = token();
-  await db.prepare("INSERT INTO sessions(token,expires) VALUES(?,?)").bind(await hash(secret), now.getTime() + 8 * 3600000).run();
-  return json({ user: surgeon }, 200, { "Set-Cookie": `${cookieName}=${secret}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800` });
-}
-
 export function createWorker({ now = () => new Date(), mailerFactory = hostedMailer, aiFactory = hostedAI } = {}) {
   return {
     async fetch(request, env) {
@@ -80,28 +56,27 @@ export function createWorker({ now = () => new Date(), mailerFactory = hostedMai
         if (!["GET", "POST"].includes(request.method)) throw new HttpError(405, "This method is not supported.");
         if (request.method === "POST" && (request.headers.get("origin") !== env.APP_ORIGIN || request.headers.get("X-Aftercare") !== "1")) throw new HttpError(403, "This request did not come from Aftercare. Refresh and try again.");
         const date = now(), db = env.DB, path = url.pathname;
-        const user = await authenticated(request, db, date);
-        if (request.method === "GET" && path === "/api/bootstrap") return json({ setupRequired: false, user, deployment: "cloud", loginMethod: "password", passwordSalt: loginProfile(env).salt });
-        if (request.method === "POST" && path === "/api/login") return await login(request, env, date);
-        if (!user) throw new HttpError(401, "Sign in to your private online workspace.");
+        const user = demoVisitor;
+        if (request.method === "GET" && path === "/api/bootstrap") return json({ setupRequired: false, user, deployment: "cloud", accessMode: "public" }, 200, {
+          "Set-Cookie": "__Host-aftercare=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"
+        });
         const { today, time } = clinicClock(date);
         const settings = async () => {
           const row = await db.prepare("SELECT * FROM settings WHERE id=1").first();
-          return { enabled: Boolean(row.enabled), time: row.time, recipient: env.GMAIL_ADDRESS };
+          return { enabled: Boolean(row.enabled), time: row.time };
         };
         if (request.method === "GET") {
-          if (path === "/api/state") return json({ ...await getState(db), today, time, user, mailMode: "smtp", deployment: "cloud" });
+          if (path === "/api/state") return json({ ...await getState(db), today, time, user, mailMode: "scheduled", deployment: "cloud", accessMode: "public" });
           if (path === "/api/ai/status") return json(await aiFactory(env).status());
-          if (path === "/api/settings") return json({ settings: await settings(), mailMode: "smtp", timezone: "America/New_York", reminders: (await db.prepare("SELECT * FROM reminders ORDER BY created_at DESC LIMIT 30").all()).results });
+          if (path === "/api/settings") return json({ settings: await settings(), mailMode: "scheduled", timezone: "America/New_York" });
           throw new HttpError(404, "This endpoint was not found.");
         }
-        await rateLimit(db, "owner-writes", 120, 60, date);
+        if (!["/api/actions", "/api/assistant"].includes(path)) throw new HttpError(404, "This action is not available in the public demo.");
+        const ip = await hash(request.headers.get("CF-Connecting-IP") || "local");
+        await rateLimit(db, `public-writes:${ip}`, 30, 60, date);
+        await rateLimit(db, "public-writes-total", 120, 60, date);
+        await rateLimit(db, "public-writes-day", 500, 86400, date);
         const body = await bodyJSON(request);
-        if (path === "/api/logout") {
-          const value = (request.headers.get("cookie") || "").split(";").map(s => s.trim()).find(s => s.startsWith(`${cookieName}=`)).slice(cookieName.length + 1);
-          await db.prepare("DELETE FROM sessions WHERE token=?").bind(await hash(value)).run();
-          return json({ signedOut: true }, 200, { "Set-Cookie": `${cookieName}=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` });
-        }
         if (path === "/api/actions") {
           const state = await getState(db);
           if (!Number.isInteger(body.revision) || body.revision !== state.revision) throw new HttpError(409, "Refresh and review the latest records before saving.");
@@ -113,19 +88,10 @@ export function createWorker({ now = () => new Date(), mailerFactory = hostedMai
           return json({ ...await saveState(db, state.revision, patients, closedCases(patients, state.closedSince, today)), today });
         }
         if (path === "/api/assistant") {
+          await rateLimit(db, `public-ai:${ip}`, 10, 3600, date);
           await rateLimit(db, "owner-ai-hour", 20, 3600, date);
           await rateLimit(db, "owner-ai-day", 50, 86400, date);
           return json(await aiFactory(env).ask(body.prompt, await getState(db), today));
-        }
-        if (path === "/api/settings") {
-          if (typeof body.enabled !== "boolean" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.time) || body.recipient !== env.GMAIL_ADDRESS) throw new HttpError(400, "Use a valid time. Hosted reminders can only go to the configured owner.");
-          await db.prepare("UPDATE settings SET enabled=?,time=? WHERE id=1").bind(Number(body.enabled), body.time).run();
-          return json({ settings: await settings() });
-        }
-        if (path === "/api/reminders/test") {
-          await rateLimit(db, "owner-test-email", 3, 3600, date);
-          const reminder = await sendReminder(env, mailerFactory(env), date, true);
-          return json({ reminder, ...(reminder.status !== "accepted" ? { error: reminder.error || "Email delivery was not confirmed." } : {}) }, reminder.status === "accepted" ? 200 : 502);
         }
         throw new HttpError(404, "This endpoint was not found.");
       } catch (error) {
@@ -139,8 +105,6 @@ export function createWorker({ now = () => new Date(), mailerFactory = hostedMai
         if (!env.APP_ORIGIN?.startsWith("https://")) throw new Error("Hosted origin missing");
         await expireCases(env.DB, clinicClock(date).today);
         await env.DB.batch([
-          env.DB.prepare("DELETE FROM sessions WHERE expires<=?").bind(date.getTime()),
-          env.DB.prepare("DELETE FROM login_challenge WHERE expires<=?").bind(date.getTime()),
           env.DB.prepare("DELETE FROM limits WHERE expires<=?").bind(date.getTime()),
           env.DB.prepare("DELETE FROM reminders WHERE created_at<?").bind(new Date(date.getTime() - 30 * 86400000).toISOString()),
           env.DB.prepare("UPDATE reminders SET status='uncertain',error=? WHERE status='sending' AND created_at<?")

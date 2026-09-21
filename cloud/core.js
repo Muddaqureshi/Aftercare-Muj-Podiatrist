@@ -1,15 +1,11 @@
 import { addDays, isOpen, validDate } from "../domain.js";
 import { HttpError } from "../backend-shared.js";
 
-export const surgeon = { id: 1, username: "Surgeon", role: "clinician" };
-export const cookieName = "__Host-aftercare";
+// This role grants editing capabilities, not authenticated clinical identity.
+export const demoVisitor = { id: 0, username: "Public demo visitor", role: "clinician" };
 
 export async function hash(value) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))].map(v => v.toString(16).padStart(2, "0")).join("");
-}
-
-export function token() {
-  return [...crypto.getRandomValues(new Uint8Array(32))].map(v => v.toString(16).padStart(2, "0")).join("");
 }
 
 export async function rateLimit(db, key, limit, seconds, now) {
@@ -63,11 +59,4 @@ export async function expireCases(db, today) {
     }
   }
   throw new HttpError(409, "Retention could not finish because records kept changing. The next scheduled run will try again.");
-}
-
-export async function authenticated(request, db, now) {
-  const value = (request.headers.get("cookie") || "").split(";").map(p => p.trim()).find(p => p.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
-  if (!value || !/^[a-f0-9]{64}$/.test(value)) return null;
-  const session = await db.prepare("SELECT token FROM sessions WHERE token=? AND expires>?").bind(await hash(value), now.getTime()).first();
-  return session ? surgeon : null;
 }

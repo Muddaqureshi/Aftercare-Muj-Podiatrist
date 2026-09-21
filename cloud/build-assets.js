@@ -1,9 +1,10 @@
-import { mkdir, copyFile, readFile, writeFile } from "node:fs/promises";
+import { mkdir, copyFile, readFile, writeFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const files = ["domain.js", "csv.js", "password-auth.js", "styles.css", "tokens.css", "favicon.svg", "pilot/client.js", "pilot/pilot.css"];
+await rm(resolve(root, "cloud/public/password-auth.js"), { force: true });
+const files = ["domain.js", "csv.js", "styles.css", "tokens.css", "favicon.svg", "pilot/client.js", "pilot/pilot.css"];
 for (const file of files) {
   const target = resolve(root, "cloud/public", file);
   await mkdir(dirname(target), { recursive: true });

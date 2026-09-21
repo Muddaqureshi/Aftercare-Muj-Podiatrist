@@ -5,15 +5,9 @@ import { closedCases, retention, getState, saveState, expireCases } from "../clo
 import { hostedAI, sendReminder } from "../cloud/services.js";
 import { makeSeed, addDays } from "../domain.js";
 import { testDatabase } from "./d1-fixture.js";
-import { passwordProof, proofVerifier, PASSWORD_ITERATIONS } from "../password-auth.js";
-import { pbkdf2Sync } from "node:crypto";
 
 const address = "fictional-owner@example.test";
 const origin = "https://aftercare.example.test";
-const salt = "af".repeat(32);
-const password = "fictional-login-test-only";
-const proof = await passwordProof(password, salt);
-const profile = { version: 1, username: "test-surgeon", salt, verifier: await proofVerifier(proof) };
 
 function fixture(t) {
   const db = testDatabase();
@@ -21,95 +15,120 @@ function fixture(t) {
   let time = new Date("2026-09-19T14:00:00-04:00");
   const messages = [];
   const mailer = { async send(message) { messages.push(message); } };
-  const env = { DB: db, GMAIL_ADDRESS: address, OWNER_LOGIN: JSON.stringify(profile), APP_ORIGIN: origin, ASSETS: { async fetch() { return new Response("public application shell"); } }, AI_MODEL: "TEST DOUBLE" };
-  const worker = createWorker({ now: () => time, mailerFactory: () => mailer, aiFactory: () => ({ async status() { return { ready: false, model: "TEST DOUBLE" }; } }) });
-  const request = async (path, body, cookie, extra = {}) => {
+  const env = { DB: db, GMAIL_ADDRESS: address, GMAIL_APP_PASSWORD: "private-test-secret", APP_ORIGIN: origin, ASSETS: { async fetch() { return new Response("public application shell"); } }, AI_MODEL: "TEST DOUBLE" };
+  const worker = createWorker({ now: () => time, mailerFactory: () => mailer, aiFactory: () => ({
+    async status() { return { ready: false, model: "TEST DOUBLE" }; },
+    async ask() { return { kind: "unsupported", message: "TEST DOUBLE" }; }
+  }) });
+  const request = async (path, body, extra = {}) => {
     const response = await worker.fetch(new Request(`${origin}${path}`, {
       method: body === undefined ? "GET" : "POST",
-      headers: { ...(body === undefined ? {} : { Origin: origin, "Content-Type": "application/json", "X-Aftercare": "1" }), ...(cookie ? { Cookie: cookie } : {}), ...extra },
+      headers: { ...(body === undefined ? {} : { Origin: origin, "Content-Type": "application/json", "X-Aftercare": "1" }), ...extra },
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
     }), env);
-    return { status: response.status, data: await response.json(), cookie: response.headers.get("set-cookie")?.split(";")[0], headers: response.headers };
+    return { status: response.status, data: await response.json(), headers: response.headers };
   };
-  async function signin() {
-    return request("/api/login", { username: profile.username, proof });
-  }
-  return { db, env, worker, request, messages, mailer, signin, date: () => time, setDate(value) { time = new Date(value); } };
+  return { db, env, worker, request, messages, mailer, date: () => time, setDate(value) { time = new Date(value); } };
 }
 
-test("password derivation matches PBKDF2 and its stored verifier is not the login proof", () => {
-  assert.equal(proof, pbkdf2Sync(password, Buffer.from(salt, "hex"), PASSWORD_ITERATIONS, 32, "sha256").toString("hex"));
-  assert.notEqual(profile.verifier, proof);
-  assert.notEqual(profile.verifier, password);
-});
-
-test("hosted password login is owner-only and creates a secure hashed session without email", async t => {
-  const { request, signin, messages, db } = fixture(t);
-  assert.equal((await request("/api/state")).status, 401);
-  assert.equal((await request("/api/login", { email: "not-owner@example.test" })).status, 401);
-  assert.equal((await request("/api/login", { username: "other-owner", proof })).status, 401);
-  assert.equal((await request("/api/login", { username: profile.username, proof: profile.verifier })).status, 401);
-  assert.equal(messages.length, 0);
-  const signedIn = await signin();
-  assert.equal(signedIn.status, 200);
-  assert.match(signedIn.headers.get("set-cookie"), /Secure; HttpOnly; SameSite=Strict/);
-  assert.match(signedIn.cookie, /^__Host-aftercare=/);
-  const stored = await db.prepare("SELECT token FROM sessions").first();
-  assert.notEqual(stored.token, signedIn.cookie.split("=")[1]);
-  assert.equal(messages.length, 0);
-  const bootstrap = (await request("/api/bootstrap")).data;
-  assert.equal(bootstrap.loginMethod, "password");
-  assert.equal(bootstrap.passwordSalt, salt);
-  assert.ok(!JSON.stringify(bootstrap).includes(profile.verifier));
-  assert.ok(!JSON.stringify(bootstrap).includes(profile.username));
-  assert.equal((await request("/api/state", undefined, signedIn.cookie)).data.patients.length, 0);
-  await request("/api/logout", {}, signedIn.cookie);
-  assert.equal((await request("/api/state", undefined, signedIn.cookie)).status, 401);
-});
-
-test("password attempts are throttled and sessions expire after eight hours", async t => {
+test("public workspace opens without credentials and clears obsolete login cookies", async t => {
   const f = fixture(t);
-  const session = await f.signin();
-  for (let i = 0; i < 19; i++) assert.equal((await f.request("/api/login", { username: profile.username, proof: "00".repeat(32) })).status, 401);
-  assert.equal((await f.signin()).status, 429);
+  const bootstrap = await f.request("/api/bootstrap");
+  assert.equal(bootstrap.status, 200);
+  assert.equal(bootstrap.data.accessMode, "public");
+  assert.equal(bootstrap.data.setupRequired, false);
+  assert.equal(bootstrap.data.passwordSalt, undefined);
+  assert.match(bootstrap.headers.get("set-cookie"), /Max-Age=0/);
+  assert.equal((await f.request("/api/state")).status, 200);
+  assert.equal((await f.request("/api/state")).data.patients.length, 0);
   assert.equal(f.messages.length, 0);
-  f.setDate("2026-09-19T22:00:01-04:00");
-  assert.equal((await f.request("/api/state", undefined, session.cookie)).status, 401);
-  assert.equal((await f.signin()).status, 200);
+  assert.equal((await f.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('sessions','login_challenge')").first()).n, 0);
 });
 
-test("sign-in works without a Gmail password and rejects missing owner configuration", async t => {
+test("anonymous writes are throttled without blocking public reads", async t => {
   const f = fixture(t);
-  delete f.env.GMAIL_APP_PASSWORD;
-  assert.equal((await f.signin()).status, 200);
-  delete f.env.OWNER_LOGIN;
-  assert.equal((await f.signin()).status, 503);
+  for (let i = 0; i < 30; i++) assert.equal((await f.request("/api/actions", {})).status, 409);
+  assert.equal((await f.request("/api/actions", {})).status, 429);
+  assert.equal((await f.request("/api/state")).status, 200);
+  assert.equal(f.messages.length, 0);
+  f.setDate("2026-09-19T14:02:00-04:00");
+  assert.equal((await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true })).status, 200);
+});
+
+test("public visitors cannot reveal Gmail details, change settings, or send email", async t => {
+  const f = fixture(t);
+  await sendReminder(f.env, f.mailer, f.date(), true);
+  const before = f.messages.length;
+  for (const path of ["/api/bootstrap", "/api/state", "/api/settings", "/api/ai/status"]) {
+    const result = await f.request(path);
+    assert.equal(result.status, 200);
+    const text = JSON.stringify(result.data);
+    assert.ok(!text.includes(address));
+    assert.ok(!text.includes(f.env.GMAIL_APP_PASSWORD));
+    assert.ok(!text.includes("recipient"));
+    assert.equal(result.data.reminders, undefined);
+  }
+  for (const path of ["/api/login", "/api/logout", "/api/setup", "/api/users", "/api/publish", "/api/settings", "/api/reminders/test"]) {
+    assert.equal((await f.request(path, { enabled: false, time: "00:00", recipient: "other@example.test" })).status, 404);
+  }
+  assert.equal(f.messages.length, before);
+  assert.equal((await f.db.prepare("SELECT enabled FROM settings WHERE id=1").first()).enabled, 1);
+});
+
+test("global public write limits enforce the exact minute and daily caps", async t => {
+  for (const [key, limit, seconds] of [["public-writes-total", 120, 60], ["public-writes-day", 500, 86400]]) {
+    const f = fixture(t);
+    const bucket = `${key}:${Math.floor(f.date().getTime() / (seconds * 1000))}`;
+    await f.db.prepare("INSERT INTO limits(key,count,expires) VALUES(?,?,?)").bind(bucket, limit - 1, f.date().getTime() + seconds * 2000).run();
+    assert.equal((await f.request("/api/actions", {})).status, 409);
+    assert.equal((await f.request("/api/actions", {}, { "CF-Connecting-IP": "192.0.2.2" })).status, 429);
+    assert.equal((await f.request("/api/state")).status, 200);
+  }
+});
+
+test("public AI limits enforce ten requests per IP and twenty per hour globally", async t => {
+  const f = fixture(t);
+  for (const ip of ["192.0.2.1", "192.0.2.2"]) {
+    for (let n = 0; n < 10; n++) assert.equal((await f.request("/api/assistant", { prompt: "Hello" }, { "CF-Connecting-IP": ip })).status, 200);
+    assert.equal((await f.request("/api/assistant", { prompt: "Hello" }, { "CF-Connecting-IP": ip })).status, 429);
+  }
+  assert.equal((await f.request("/api/assistant", { prompt: "Hello" }, { "CF-Connecting-IP": "192.0.2.3" })).status, 429);
+  f.setDate("2026-09-19T15:00:00-04:00");
+  assert.equal((await f.request("/api/assistant", { prompt: "Hello" })).status, 200);
+});
+
+test("public AI enforces its fifty-request daily cap independently of hourly limits", async t => {
+  const f = fixture(t);
+  const bucket = `owner-ai-day:${Math.floor(f.date().getTime() / 86400000)}`;
+  await f.db.prepare("INSERT INTO limits(key,count,expires) VALUES(?,?,?)").bind(bucket, 49, f.date().getTime() + 172800000).run();
+  assert.equal((await f.request("/api/assistant", { prompt: "Hello" })).status, 200);
+  assert.equal((await f.request("/api/assistant", { prompt: "Hello" })).status, 429);
+  assert.equal((await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true })).status, 200);
 });
 
 test("cross-origin writes, secrets, public registration, and publication are blocked", async t => {
   const f = fixture(t);
-  assert.equal((await f.request("/api/login", { email: address }, undefined, { Origin: "https://other.example" })).status, 403);
-  for (const path of ["/.env", "/cloud/worker.js", "/.data/aftercare.sqlite", "/__test-code"]) {
+  assert.equal((await f.request("/api/actions", {}, { Origin: "https://other.example" })).status, 403);
+  for (const path of ["/.env", "/cloud/worker.js", "/.data/aftercare.sqlite", "/__test-code", "/__scheduled", "/password-auth.js"]) {
     assert.equal((await f.worker.fetch(new Request(`${origin}${path}`), f.env)).status, 404);
   }
-  const account = await f.signin();
-  assert.equal((await f.request("/api/setup", {}, account.cookie)).status, 404);
-  assert.equal((await f.request("/api/publish", {}, account.cookie)).status, 404);
+  assert.equal((await f.request("/api/setup", {})).status, 404);
+  assert.equal((await f.request("/api/publish", {})).status, 404);
   assert.equal((await f.worker.fetch(new Request("https://other.example/api/bootstrap"), f.env)).status, 503);
 });
 
 test("online mutations are shared and stale updates cannot overwrite another browser", async t => {
-  const f = fixture(t), account = await f.signin();
-  const seeded = await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true }, account.cookie);
+  const f = fixture(t);
+  const seeded = await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true });
   assert.equal(seeded.data.patients.length, 6);
   const p = seeded.data.patients[0], m = p.milestones[1];
   const action = { revision: seeded.data.revision, action: "milestone", patientId: p.id, milestoneId: m.id, operation: "complete" };
-  assert.equal((await f.request("/api/actions", action, account.cookie)).status, 200);
-  assert.equal((await f.request("/api/actions", { ...action, operation: "contact" }, account.cookie)).status, 409);
-  const fresh = (await f.request("/api/state", undefined, account.cookie)).data;
+  assert.equal((await f.request("/api/actions", action)).status, 200);
+  assert.equal((await f.request("/api/actions", { ...action, operation: "contact" })).status, 409);
+  const fresh = (await f.request("/api/state")).data;
   assert.equal(fresh.patients[0].milestones[1].status, "completed");
-  assert.equal(fresh.patients[0].milestones[1].history.at(-1).recordedBy, "Surgeon");
-  assert.equal((await f.request("/api/actions", { action: "load-demo", revision: fresh.revision, fictionalOnly: true }, account.cookie)).status, 400);
+  assert.equal(fresh.patients[0].milestones[1].history.at(-1).recordedBy, "Public demo visitor");
+  assert.equal((await f.request("/api/actions", { action: "load-demo", revision: fresh.revision, fictionalOnly: true })).status, 400);
 });
 
 test("retention starts on closure, keeps future open work, and resets after reopening", () => {
@@ -143,9 +162,9 @@ test("scheduled retention deletes only closed records and invalidates stale brow
 });
 
 test("hosted reminders are deduplicated, generic, and cannot be redirected to other recipients", async t => {
-  const f = fixture(t), account = await f.signin();
-  await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true }, account.cookie);
-  assert.equal((await f.request("/api/settings", { enabled: true, time: "09:00", recipient: "other@example.test" }, account.cookie)).status, 400);
+  const f = fixture(t);
+  await f.request("/api/actions", { revision: 0, action: "load-demo", fictionalOnly: true });
+  assert.equal((await f.request("/api/settings", { enabled: true, time: "09:00", recipient: "other@example.test" })).status, 404);
   const before = f.messages.length;
   const first = await sendReminder(f.env, f.mailer, f.date());
   const second = await sendReminder(f.env, f.mailer, f.date());

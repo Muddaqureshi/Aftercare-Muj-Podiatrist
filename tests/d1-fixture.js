@@ -1,9 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 export function testDatabase() {
   const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("../cloud/migrations/0001.sql", import.meta.url), "utf8"));
+  const migrations = new URL("../cloud/migrations/", import.meta.url);
+  for (const file of readdirSync(migrations).filter(name => name.endsWith(".sql")).sort()) {
+    sqlite.exec(readFileSync(new URL(file, migrations), "utf8"));
+  }
   const prepare = (sql, values = []) => ({
     bind(...bound) { return prepare(sql, bound); },
     async first() { return sqlite.prepare(sql).get(...values) || null; },

@@ -63,7 +63,7 @@ export async function sendReminder(env, mailer, now, test = false) {
   const message = {
     id: crypto.randomUUID(), recipient: env.GMAIL_ADDRESS,
     subject: test ? "Aftercare: hosted reminder test" : "Aftercare: review your follow-up list",
-    body: `Fictional-data Aftercare pilot.\n\n${attention} milestone(s) need an attendance or outcome update.\n${due} open milestone(s) are due from today through Sunday.\n\nSign in: ${env.APP_ORIGIN}\n\nAttendance must be recorded manually. No patient information is included and no patient has been contacted.`
+    body: `Fictional-data Aftercare public demo.\n\n${attention} milestone(s) need an attendance or outcome update.\n${due} open milestone(s) are due from today through Sunday.\n\nOpen the demo: ${env.APP_ORIGIN}\n\nAnyone with the link can view and edit the fictional cases. Attendance must be recorded manually. No patient information is included and no patient has been contacted.`
   };
   const skip = !test && attention === 0 && due === 0;
   const inserted = await db.prepare("INSERT OR IGNORE INTO reminders(id,run_key,status,recipient,subject,body,created_at) VALUES(?,?,?,?,?,?,?) RETURNING id")
